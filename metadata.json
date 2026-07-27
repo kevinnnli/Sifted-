@@ -1,0 +1,6 @@
+{
+  "name": "ScholarScreen AI - Graduate Applicant Screening Platform",
+  "description": "A modern, AI-powered graduate school admissions screening platform for professors. Features customized assessment building, adaptive testing, AI question generation, automated response grading, anti-cheating integrity monitoring, and detailed applicant interview recommendation analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
