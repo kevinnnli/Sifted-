@@ -21,6 +21,24 @@ import { AdminPortal } from './components/AdminPortal';
 import { MOCK_PROFESSORS, MOCK_ASSESSMENTS, MOCK_QUESTIONS, MOCK_SUBMISSIONS, MOCK_USER_ACCOUNTS, MOCK_INVITATIONS } from './data/mockData';
 import { Assessment, Question, ApplicantSubmission, ProfessorProfile, UserAccount, AssessmentInvitation, ActiveRole } from './types';
 
+type ProfessorTab = 'dashboard' | 'assessments' | 'questions' | 'applicants' | 'analytics' | 'settings';
+
+const ROLE_FOR_ACCOUNT: Record<UserAccount['role'], ActiveRole> = {
+  admin: 'admin-portal',
+  professor: 'professor',
+  applicant: 'applicant-portal',
+};
+
+function postJson(url: string, body: unknown) {
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch((err) => {
+    console.error(`Failed to save to ${url}:`, err);
+  });
+}
+
 export default function App() {
   // Application Data State
   const [professors, setProfessors] = useState<ProfessorProfile[]>(MOCK_PROFESSORS);
@@ -30,27 +48,30 @@ export default function App() {
   const [submissions, setSubmissions] = useState<ApplicantSubmission[]>(MOCK_SUBMISSIONS);
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(MOCK_USER_ACCOUNTS);
   const [invitations, setInvitations] = useState<AssessmentInvitation[]>(MOCK_INVITATIONS);
+  const [dataLoaded, setDataLoaded] = useState<boolean>(false);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessments' | 'questions' | 'applicants' | 'analytics' | 'settings'>('dashboard');
-  const [selectedSubmission, setSelectedSubmission] = useState<ApplicantSubmission | null>(null);
-  const [activeRole, setActiveRole] = useState<ActiveRole>(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('mode') === 'lockdown' || params.get('lockdown') === 'true' || params.get('role') === 'applicant') {
-      return 'applicant-portal';
-    }
-    return 'landing';
-  });
+  const [activeTab, setActiveTab] = useState<ProfessorTab>('dashboard');
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [activeRole, setActiveRole] = useState<ActiveRole>('landing');
   const [showAIGeneratorOnOpen, setShowAIGeneratorOnOpen] = useState<boolean>(false);
 
-  // Account & Modals State
-  const [currentAccount, setCurrentAccount] = useState<UserAccount>(MOCK_USER_ACCOUNTS[0]);
+  // Account & Modals State (nobody is signed in until they pick an account)
+  const [currentAccount, setCurrentAccount] = useState<UserAccount | null>(null);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assignAssessmentId, setAssignAssessmentId] = useState<string | undefined>(undefined);
 
   // Load persistent backend data on boot
   useEffect(() => {
+    const applyAccountFromUrl = (accounts: UserAccount[]) => {
+      // The secure exam tab is opened with ?accountId=... so it continues as the same signed-in student
+      const accountId = new URLSearchParams(window.location.search).get('accountId');
+      const account = accountId ? accounts.find((a) => a.id === accountId) : undefined;
+      if (account) handleSwitchAccount(account);
+    };
+
     fetch('/api/data')
       .then((res) => res.json())
       .then((data) => {
@@ -62,11 +83,24 @@ export default function App() {
           if (data.userAccounts) setUserAccounts(data.userAccounts);
           if (data.invitations) setInvitations(data.invitations);
         }
+        applyAccountFromUrl(data?.userAccounts || MOCK_USER_ACCOUNTS);
       })
-      .catch((err) => console.log('Using fallback local state:', err));
+      .catch((err) => {
+        console.log('Using fallback local state:', err);
+        applyAccountFromUrl(MOCK_USER_ACCOUNTS);
+      })
+      .finally(() => setDataLoaded(true));
+
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((data) => setAiConfigured(Boolean(data?.aiConfigured)))
+      .catch(() => setAiConfigured(false));
   }, []);
 
   const currentProfessor = professors.find((p) => p.id === currentProfId) || professors[0];
+  // Look the selected submission up by id so the review screen always shows the latest saved version
+  const selectedSubmission = selectedSubmissionId ? submissions.find((s) => s.id === selectedSubmissionId) || null : null;
+  const professorAssessments = assessments.filter((a) => !a.professorId || a.professorId === currentProfId);
 
   // Handler for saving/updating assessment
   const handleSaveAssessment = (newAssessment: Assessment) => {
@@ -79,11 +113,7 @@ export default function App() {
       }
       return [newAssessment, ...prev];
     });
-    fetch('/api/data/assessments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assessment: newAssessment }),
-    }).catch(console.error);
+    postJson('/api/data/assessments', { assessment: newAssessment });
   };
 
   // Handler for adding or updating a question in bank
@@ -97,152 +127,182 @@ export default function App() {
       }
       return [newQuestion, ...prev];
     });
-    fetch('/api/data/questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: newQuestion }),
-    }).catch(console.error);
+    postJson('/api/data/questions', { question: newQuestion });
   };
 
-  // Handler for updating a submission (e.g. professor decision or notes)
+  // Handler for adding or updating a submission (professor decisions, notes, applicant RSVPs...)
   const handleUpdateSubmission = (updated: ApplicantSubmission) => {
-    setSubmissions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (selectedSubmission?.id === updated.id) {
-      setSelectedSubmission(updated);
-    }
-    fetch('/api/data/submissions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ submission: updated }),
-    }).catch(console.error);
-  };
-
-  // Handler for completing assessment from Applicant Portal
-  const handleCompleteAssessment = (newSubmission: ApplicantSubmission) => {
-    setSubmissions((prev) => [newSubmission, ...prev]);
-    fetch('/api/data/submissions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ submission: newSubmission }),
-    }).catch(console.error);
+    setSubmissions((prev) => {
+      const idx = prev.findIndex((s) => s.id === updated.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = updated;
+        return copy;
+      }
+      return [updated, ...prev];
+    });
+    postJson('/api/data/submissions', { submission: updated });
   };
 
   const handleRemoveSubmission = (submissionId: string) => {
     setSubmissions((prev) => prev.filter((s) => s.id !== submissionId));
-    fetch(`/api/data/submissions/${submissionId}`, { method: 'DELETE' }).catch(console.error);
+    if (selectedSubmissionId === submissionId) setSelectedSubmissionId(null);
+    fetch(`/api/data/submissions/${encodeURIComponent(submissionId)}`, { method: 'DELETE' }).catch(console.error);
   };
 
-  const handleSwitchAccount = (account: UserAccount) => {
+  function handleSwitchAccount(account: UserAccount) {
     setCurrentAccount(account);
-    if (account.role === 'admin') {
-      setActiveRole('admin-portal');
-    } else if (account.role === 'professor' && account.professorId) {
+    setSelectedSubmissionId(null);
+    setActiveTab('dashboard');
+    setShowAIGeneratorOnOpen(false);
+    if (account.role === 'professor' && account.professorId) {
       setCurrentProfId(account.professorId);
-      setActiveRole('professor');
-    } else if (account.role === 'applicant') {
-      setActiveRole('applicant-portal');
     }
+    setActiveRole(ROLE_FOR_ACCOUNT[account.role] || 'landing');
+  }
+
+  const handleSignOut = () => {
+    setCurrentAccount(null);
+    setSelectedSubmissionId(null);
+    setActiveRole('landing');
   };
 
   const handleCreateAccount = (newAcc: UserAccount) => {
     setUserAccounts((prev) => [newAcc, ...prev]);
-    setCurrentAccount(newAcc);
-    if (newAcc.role === 'admin') {
-      setActiveRole('admin-portal');
-    } else if (newAcc.role === 'professor' && newAcc.professorId) {
-      setCurrentProfId(newAcc.professorId);
-      setActiveRole('professor');
-    } else {
-      setActiveRole('applicant-portal');
-    }
-    fetch('/api/data/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: newAcc }),
-    }).catch(console.error);
+    handleSwitchAccount(newAcc);
+    postJson('/api/data/accounts', { account: newAcc });
   };
 
   const handleCreateProfessorAccount = (newProfAcc: UserAccount, newProfProfile: ProfessorProfile) => {
     setUserAccounts((prev) => [newProfAcc, ...prev]);
     setProfessors((prev) => [newProfProfile, ...prev]);
-    fetch('/api/data/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: newProfAcc }),
-    }).catch(console.error);
-    fetch('/api/data/professors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ professor: newProfProfile }),
-    }).catch(console.error);
+    postJson('/api/data/accounts', { account: newProfAcc });
+    postJson('/api/data/professors', { professor: newProfProfile });
+  };
+
+  const handleUpdateProfessor = (updatedProf: ProfessorProfile) => {
+    setProfessors((prev) => prev.map((p) => (p.id === updatedProf.id ? updatedProf : p)));
+    postJson('/api/data/professors', { professor: updatedProf });
+    // Keep the professor's sign-in account in sync with their lab profile
+    const linkedAccount = userAccounts.find((a) => a.professorId === updatedProf.id);
+    if (linkedAccount && linkedAccount.labName !== updatedProf.labName) {
+      const updatedAccount = { ...linkedAccount, labName: updatedProf.labName };
+      setUserAccounts((prev) => prev.map((a) => (a.id === updatedAccount.id ? updatedAccount : a)));
+      if (currentAccount?.id === updatedAccount.id) setCurrentAccount(updatedAccount);
+      postJson('/api/data/accounts', { account: updatedAccount });
+    }
   };
 
   const handleAssignAssessment = (inv: AssessmentInvitation) => {
     setInvitations((prev) => [inv, ...prev]);
-    fetch('/api/data/invitations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ invitation: inv }),
-    }).catch(console.error);
+    postJson('/api/data/invitations', { invitation: inv });
   };
 
   const handleUpdateInvitationStatus = (id: string, status: 'pending' | 'in-progress' | 'completed') => {
-    setInvitations((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, status } : i))
-    );
-    const updated = invitations.find((i) => i.id === id);
-    if (updated) {
-      fetch('/api/data/invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invitation: { ...updated, status } }),
-      }).catch(console.error);
-    }
+    const existing = invitations.find((i) => i.id === id);
+    if (!existing) return;
+    const now = new Date().toISOString();
+    const updated: AssessmentInvitation = {
+      ...existing,
+      status,
+      startedAt: status === 'in-progress' ? existing.startedAt || now : existing.startedAt,
+      submittedAt: status === 'completed' ? now : existing.submittedAt,
+    };
+    setInvitations((prev) => prev.map((i) => (i.id === id ? updated : i)));
+    postJson('/api/data/invitations', { invitation: updated });
   };
 
   const handleAssignDemoTest = (email: string) => {
-    const defaultAssessment = assessments[0] || MOCK_ASSESSMENTS[0];
-    const newInv: AssessmentInvitation = {
+    const alreadyAssigned = new Set(
+      invitations.filter((i) => i.applicantEmail.toLowerCase() === email.toLowerCase()).map((i) => i.assessmentId)
+    );
+    const demoAssessment =
+      assessments.find((a) => a.isActive !== false && !alreadyAssigned.has(a.id)) || assessments.find((a) => a.isActive !== false);
+    if (!demoAssessment) {
+      alert('There are no published assessments to assign yet.');
+      return;
+    }
+    const deadline = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+    handleAssignAssessment({
       id: `inv-${Date.now()}`,
-      assessmentId: defaultAssessment?.id || 'as-ai-phd-2026',
-      professorId: currentProfId,
-      applicantEmail: email,
-      assignedAt: new Date().toISOString().split('T')[0],
-      deadline: '2026-08-15',
+      assessmentId: demoAssessment.id,
+      professorId: demoAssessment.professorId,
+      applicantEmail: email.toLowerCase(),
+      applicantName: currentAccount?.name,
+      assignedAt: new Date().toISOString(),
+      deadline,
       status: 'pending',
       notes: 'Demo invitation automatically assigned for testing and verification purposes.',
-    };
-    handleAssignAssessment(newInv);
+    });
   };
 
+  const handleResetData = async () => {
+    try {
+      const res = await fetch('/api/data/reset', { method: 'POST' });
+      const data = await res.json();
+      if (!data?.success) throw new Error('Reset failed');
+      setProfessors(data.professors);
+      setAssessments(data.assessments);
+      setQuestionBank(data.questionBank);
+      setSubmissions(data.submissions);
+      setUserAccounts(data.userAccounts);
+      setInvitations(data.invitations);
+      handleSignOut();
+    } catch (err) {
+      console.error(err);
+      alert('Could not reset the demo data. Is the server running?');
+    }
+  };
+
+  const openAssignModal = (assessmentId?: string) => {
+    // The modal resolves the id against the latest assessments (a just-saved exam may not be in this render's list yet)
+    setAssignAssessmentId(assessmentId);
+    setShowAssignModal(true);
+  };
+
+  const authModal = showAuthModal && (
+    <AuthModal
+      isOpen={showAuthModal}
+      onClose={() => setShowAuthModal(false)}
+      currentAccount={currentAccount}
+      accounts={userAccounts}
+      onSelectAccount={handleSwitchAccount}
+      onCreateAccount={handleCreateAccount}
+    />
+  );
+
+  if (!dataLoaded) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center text-sm font-semibold">
+        Loading Sifted…
+      </div>
+    );
+  }
+
+  // Each portal is only reachable by an account with the matching role
+  const effectiveRole: ActiveRole = currentAccount && activeRole === ROLE_FOR_ACCOUNT[currentAccount.role] ? activeRole : 'landing';
+
   // If Landing Page is active, render Landing Page
-  if (activeRole === 'landing') {
+  if (effectiveRole === 'landing' || !currentAccount) {
+    const params = new URLSearchParams(window.location.search);
     return (
       <>
         <LandingPage
           accounts={userAccounts}
           onSelectAccount={handleSwitchAccount}
           onCreateStudentAccount={handleCreateAccount}
+          initialTab={params.get('role') === 'applicant' ? 'login' : 'overview'}
           assessmentsCount={assessments.length}
           questionsCount={questionBank.length}
           submissionsCount={submissions.length}
         />
-        {showAuthModal && (
-          <AuthModal
-            isOpen={showAuthModal}
-            onClose={() => setShowAuthModal(false)}
-            currentAccount={currentAccount}
-            accounts={userAccounts}
-            onSelectAccount={handleSwitchAccount}
-            onCreateAccount={handleCreateAccount}
-          />
-        )}
+        {authModal}
       </>
     );
   }
 
   // If Admin Portal is active, render Admin Portal
-  if (activeRole === 'admin-portal') {
+  if (effectiveRole === 'admin-portal') {
     return (
       <>
         <AdminPortal
@@ -251,71 +311,33 @@ export default function App() {
           professors={professors}
           onCreateProfessor={handleCreateProfessorAccount}
           onSwitchAccount={handleSwitchAccount}
-          onExitToLanding={() => setActiveRole('landing')}
+          onExitToLanding={handleSignOut}
+          onResetData={handleResetData}
         />
-        {showAuthModal && (
-          <AuthModal
-            isOpen={showAuthModal}
-            onClose={() => setShowAuthModal(false)}
-            currentAccount={currentAccount}
-            accounts={userAccounts}
-            onSelectAccount={handleSwitchAccount}
-            onCreateAccount={handleCreateAccount}
-          />
-        )}
+        {authModal}
       </>
     );
   }
 
   // If Candidate Portal is active, render full screen portal
-  if (activeRole === 'applicant-portal') {
+  if (effectiveRole === 'applicant-portal') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 relative">
-        <div className="max-w-4xl mx-auto flex items-center justify-between mb-3 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs font-semibold text-slate-300">
-              Isolated Student Portal: <strong className="text-white">{currentAccount.name}</strong> ({currentAccount.email})
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setActiveRole('landing')}
-              className="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors"
-            >
-              ← Home / Landing
-            </button>
-            <button
-              onClick={() => setShowAuthModal(true)}
-              className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg border border-indigo-500/30 transition-colors"
-            >
-              Switch Account
-            </button>
-          </div>
-        </div>
         <ApplicantPortal
           assessments={assessments}
           questionBank={questionBank}
+          professors={professors}
           submissions={submissions}
-          onCompleteAssessment={handleCompleteAssessment}
-          onRemoveSubmission={handleRemoveSubmission}
+          onCompleteAssessment={handleUpdateSubmission}
           onUpdateSubmission={handleUpdateSubmission}
-          onExitPortal={() => setActiveRole('landing')}
+          onExitPortal={handleSignOut}
           currentUserAccount={currentAccount}
           invitations={invitations}
           onUpdateInvitationStatus={handleUpdateInvitationStatus}
           onOpenAuthModal={() => setShowAuthModal(true)}
           onAssignDemoTest={handleAssignDemoTest}
         />
-        {showAuthModal && (
-          <AuthModal
-            isOpen={showAuthModal}
-            onClose={() => setShowAuthModal(false)}
-            currentAccount={currentAccount}
-            accounts={userAccounts}
-            onSelectAccount={handleSwitchAccount}
-            onCreateAccount={handleCreateAccount}
-          />
-        )}
+        {authModal}
       </div>
     );
   }
@@ -325,26 +347,16 @@ export default function App() {
       {/* Top Navigation */}
       <Navbar
         currentProfessor={currentProfessor}
-        allProfessors={professors}
-        onSelectProfessor={(id) => {
-          setCurrentProfId(id);
-          setSelectedSubmission(null);
-        }}
         activeTab={activeTab}
         onSelectTab={(tab) => {
           setActiveTab(tab);
-          setSelectedSubmission(null);
+          setSelectedSubmissionId(null);
           setShowAIGeneratorOnOpen(false);
         }}
-        onOpenCandidatePortal={() => setActiveRole('applicant-portal')}
-        activeRole={activeRole}
-        setActiveRole={setActiveRole}
+        onGoHome={handleSignOut}
         currentUserAccount={currentAccount}
         onOpenAuthModal={() => setShowAuthModal(true)}
-        onOpenAssignModal={() => {
-          setAssignAssessmentId(assessments[0]?.id);
-          setShowAssignModal(true);
-        }}
+        onOpenAssignModal={() => openAssignModal()}
       />
 
       {/* Main Content Area */}
@@ -352,9 +364,10 @@ export default function App() {
         {/* If an individual applicant submission is selected for review */}
         {selectedSubmission ? (
           <IndividualApplicantReview
+            key={selectedSubmission.id}
             submission={selectedSubmission}
             questions={questionBank}
-            onBack={() => setSelectedSubmission(null)}
+            onBack={() => setSelectedSubmissionId(null)}
             onUpdateSubmission={handleUpdateSubmission}
           />
         ) : (
@@ -364,19 +377,21 @@ export default function App() {
                 currentProfessor={currentProfessor}
                 assessments={assessments}
                 submissions={submissions}
+                onNavigateToTab={(tab) => setActiveTab(tab as ProfessorTab)}
                 onNavigateToAssessments={() => setActiveTab('assessments')}
                 onNavigateToQuestionBank={() => setActiveTab('questions')}
-                onSelectSubmission={(sub) => setSelectedSubmission(sub)}
-                onOpenCandidatePortal={() => setActiveRole('applicant-portal')}
-                onOpenAssignModal={() => {
-                  setAssignAssessmentId(assessments[0]?.id);
-                  setShowAssignModal(true);
+                onOpenAIQuestionGenerator={() => {
+                  setShowAIGeneratorOnOpen(true);
+                  setActiveTab('assessments');
                 }}
+                onSelectSubmission={(sub) => setSelectedSubmissionId(sub.id)}
+                onOpenAssignModal={() => openAssignModal()}
               />
             )}
 
             {activeTab === 'assessments' && (
               <AssessmentBuilder
+                key={currentProfessor.id}
                 currentProfessor={currentProfessor}
                 assessments={assessments}
                 questionBank={questionBank}
@@ -384,10 +399,7 @@ export default function App() {
                 onAddQuestionToBank={handleAddQuestionToBank}
                 showAIGeneratorOnOpen={showAIGeneratorOnOpen}
                 onCloseAIGenerator={() => setShowAIGeneratorOnOpen(false)}
-                onOpenAssignModal={(assId) => {
-                  setAssignAssessmentId(assId || assessments[0]?.id);
-                  setShowAssignModal(true);
-                }}
+                onOpenAssignModal={openAssignModal}
               />
             )}
 
@@ -408,13 +420,10 @@ export default function App() {
                 currentProfessor={currentProfessor}
                 submissions={submissions}
                 assessments={assessments}
-                onSelectSubmission={(sub) => setSelectedSubmission(sub)}
+                onSelectSubmission={(sub) => setSelectedSubmissionId(sub.id)}
                 onUpdateSubmission={handleUpdateSubmission}
                 onRemoveSubmission={handleRemoveSubmission}
-                onOpenAssignModal={() => {
-                  setAssignAssessmentId(assessments[0]?.id);
-                  setShowAssignModal(true);
-                }}
+                onOpenAssignModal={() => openAssignModal()}
               />
             )}
 
@@ -423,15 +432,16 @@ export default function App() {
                 currentProfessor={currentProfessor}
                 assessments={assessments}
                 submissions={submissions}
+                questionBank={questionBank}
               />
             )}
 
             {activeTab === 'settings' && (
               <SettingsPanel
+                key={currentProfessor.id}
                 currentProfessor={currentProfessor}
-                onUpdateProfessor={(updatedProf) => {
-                  setProfessors((prev) => prev.map((p) => (p.id === updatedProf.id ? updatedProf : p)));
-                }}
+                onUpdateProfessor={handleUpdateProfessor}
+                aiConfigured={aiConfigured}
               />
             )}
           </>
@@ -442,47 +452,35 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center space-x-2">
-            <span className="font-bold text-slate-800">ScholarScreen AI</span>
+            <span className="font-bold text-slate-800">Sifted</span>
             <span>• Graduate Admissions & Faculty Screening System</span>
           </div>
           <div className="flex items-center space-x-4">
-            <span className="text-emerald-600 font-semibold">Gemini 3.6 Flash Server-Side Connected</span>
-            <span>•</span>
-            <button
-              onClick={() => setActiveRole('applicant-portal')}
-              className="text-indigo-600 hover:text-indigo-800 font-bold underline"
-            >
-              Test Student Experience →
-            </button>
+            {aiConfigured === null ? (
+              <span className="text-slate-400 font-semibold">Checking AI status…</span>
+            ) : aiConfigured ? (
+              <span className="text-emerald-600 font-semibold">Gemini AI connected (server-side)</span>
+            ) : (
+              <span className="text-amber-600 font-semibold">AI not configured — using built-in grading</span>
+            )}
           </div>
         </div>
       </footer>
 
-      {showAuthModal && (
-        <AuthModal
-          isOpen={showAuthModal}
-          onClose={() => setShowAuthModal(false)}
-          currentAccount={currentAccount}
-          accounts={userAccounts}
-          onSelectAccount={handleSwitchAccount}
-          onCreateAccount={handleCreateAccount}
-        />
-      )}
+      {authModal}
 
       {showAssignModal && (
         <AssignAssessmentModal
           isOpen={showAssignModal}
           onClose={() => setShowAssignModal(false)}
           currentProfessor={currentProfessor}
-          assessments={assessments}
+          assessments={professorAssessments}
           accounts={userAccounts}
-          userAccounts={userAccounts}
+          invitations={invitations}
           onAssign={handleAssignAssessment}
           preselectedAssessmentId={assignAssessmentId}
-          initialAssessmentId={assignAssessmentId}
         />
       )}
     </div>
   );
 }
-

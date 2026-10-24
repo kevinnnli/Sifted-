@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserAccount, ActiveRole } from '../types';
+import { UserAccount } from '../types';
 import { User, GraduationCap, Building2, Mail, CheckCircle2, ShieldCheck, Sparkles, X, PlusCircle } from 'lucide-react';
 
 interface AuthModalProps {
@@ -20,7 +20,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onCreateAccount,
 }) => {
   const [tab, setTab] = useState<'switch' | 'register'>('switch');
-  const role: 'applicant' = 'applicant';
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [secondaryEmail, setSecondaryEmail] = useState('');
@@ -33,8 +32,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleRegister = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!name.trim() || !email.trim() || !secondaryEmail.trim()) {
-      setError('Both Primary University Email and Secondary Personal Email are required.');
+    if (!name.trim() || !email.trim() || !secondaryEmail.trim() || !institution.trim() || !programOrLab.trim()) {
+      setError('Please fill in your name, institution, degree program, and both email addresses.');
+      return;
+    }
+    if (accounts.some((a) => a.email.toLowerCase() === email.trim().toLowerCase())) {
+      setError('An account with this university email already exists. Select it from "Select Existing Test Account".');
       return;
     }
     if (email.trim().toLowerCase() === secondaryEmail.trim().toLowerCase()) {
@@ -55,12 +58,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       isVerified: true,
       role: 'applicant',
       avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
-      university: institution || 'University',
-      degreeProgram: programOrLab || 'Graduate Applicant',
+      university: institution.trim(),
+      degreeProgram: programOrLab.trim(),
     };
 
+    // onCreateAccount also signs the new account in
     onCreateAccount(newAcc);
-    onSelectAccount(newAcc);
     onClose();
   };
 
@@ -84,7 +87,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <ShieldCheck className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold">ScholarScreen Account & Role Switcher</h2>
+              <h2 className="text-xl font-bold">Sifted Account & Role Switcher</h2>
               <p className="text-xs text-indigo-200">
                 Sign in to assign tests as a Faculty Professor or take directed exams as an Applicant
               </p>
@@ -322,6 +325,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">University / Institution *</label>
                   <input
                     type="text"
+                    required
                     value={institution}
                     onChange={(e) => setInstitution(e.target.value)}
                     placeholder="Stanford University"
@@ -332,6 +336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Target Degree Program *</label>
                   <input
                     type="text"
+                    required
                     value={programOrLab}
                     onChange={(e) => setProgramOrLab(e.target.value)}
                     placeholder="PhD in Artificial Intelligence"

@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   GraduationCap, 
   ShieldCheck, 
   Clock, 
-  PlayCircle, 
   CheckCircle2, 
   AlertTriangle, 
   Code, 
@@ -13,18 +12,14 @@ import {
   ArrowRight, 
   ArrowLeft, 
   Check, 
-  HelpCircle,
   Eye,
   EyeOff,
   AlertCircle,
   User,
   Calendar,
   FileText,
-  Mail,
   PlusCircle,
-  Building2,
   Flag,
-  Bookmark,
   Calculator,
   Grid,
   Scissors,
@@ -34,30 +29,44 @@ import {
   Maximize2,
   Minimize2,
   List,
-  RotateCcw,
-  FileCode,
-  Sliders,
   LayoutGrid,
   Lock,
-  Unlock,
   ExternalLink,
   ShieldAlert,
   Monitor,
   AlertOctagon,
   Trash2,
   Video,
-  Link
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Assessment, Question, ApplicantSubmission, UserAccount, AssessmentInvitation } from '../types';
-import { calculateSubmissionGrading, getHireabilityBadgeStyle } from '../utils/grading';
+import { ResponsiveContainer, LineChart, Line, BarChart, Bar, ScatterChart, Scatter, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
+import {
+  Assessment,
+  Question,
+  ApplicantSubmission,
+  UserAccount,
+  AssessmentInvitation,
+  ProfessorProfile,
+  IntegrityOptions,
+  DifficultyLevel,
+  QuestionResponseItem,
+} from '../types';
+import {
+  applyScoreOverrides,
+  calculateSubmissionGrading,
+  getAiFlagThreshold,
+  getEffectiveScore,
+  getHireabilityBadgeStyle,
+  getHireabilityLevel,
+  getRecommendationFromLevel,
+} from '../utils/grading';
 
 interface ApplicantPortalProps {
   assessments: Assessment[];
   questionBank: Question[];
+  professors?: ProfessorProfile[];
   submissions?: ApplicantSubmission[];
   onCompleteAssessment: (submission: ApplicantSubmission) => void;
-  onRemoveSubmission?: (submissionId: string) => void;
   onUpdateSubmission?: (submission: ApplicantSubmission) => void;
   onExitPortal: () => void;
   currentUserAccount?: UserAccount | null;
@@ -67,12 +76,109 @@ interface ApplicantPortalProps {
   onAssignDemoTest?: (email: string) => void;
 }
 
+type ResponseDraft = Record<string, { answer: any; timeSpentSeconds: number }>;
+
+// Persisted while a test is in progress so a reload or accidental exit can resume it
+interface SavedProgress {
+  questionOrder: string[];
+  optionOrders: Record<string, string[]>;
+  responses: ResponseDraft;
+  startedAtMs: number;
+  currentQuestionIndex: number;
+  tabSwitches: number;
+  copyPasteAttempts: number;
+  flaggedQuestions: Record<string, boolean>;
+  timeSpent: Record<string, number>;
+  integrityEvents: string[];
+  isLockdownActive: boolean;
+}
+
+const DEFAULT_INTEGRITY_OPTIONS: IntegrityOptions = {
+  fullScreenMode: true,
+  tabSwitchDetection: true,
+  webcamMonitoring: false,
+  copyPasteDetection: true,
+  aiAnswerDetection: true,
+  randomizeQuestionOrder: true,
+  randomizeAnswerOrder: true,
+};
+
+const DIFFICULTY_ORDER: Record<DifficultyLevel, number> = {
+  Basic: 0,
+  Intermediate: 1,
+  Advanced: 2,
+  'Research-Level': 3,
+};
+
+const LATE_GRACE_SECONDS = 5 * 60;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function shuffle<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+// 'YYYY-MM-DD' values are calendar dates: parse them in local time. new Date('2026-08-04') is UTC
+// midnight, which displays as the previous day for users west of UTC.
+function parseLocalDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const parsed = new Date(value);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatLocalDate(value?: string): string {
+  const date = value ? parseLocalDate(value) : null;
+  return date ? date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending Assignment';
+}
+
+function isPastDeadline(deadline?: string): boolean {
+  const date = deadline ? parseLocalDate(deadline) : null;
+  if (!date) return false;
+  date.setHours(23, 59, 59, 999);
+  return Date.now() > date.getTime();
+}
+
+// Evaluates calculator input restricted to digits, arithmetic operators, parentheses, '.' and '%'
+function evaluateArithmetic(expression: string): string {
+  const sanitized = expression.replace(/[^0-9+\-*/().%]/g, '');
+  if (!sanitized) return '';
+  try {
+    const result = new Function(`"use strict"; return (${sanitized});`)();
+    return typeof result === 'number' && Number.isFinite(result) ? String(Math.round(result * 1e10) / 1e10) : 'Error';
+  } catch {
+    return 'Error';
+  }
+}
+
+function readStorage<T>(key: string): T | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: unknown | null) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage may be unavailable (private mode, quota); the test still works without resume support
+  }
+}
+
 export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
   assessments,
   questionBank,
+  professors = [],
   submissions = [],
   onCompleteAssessment,
-  onRemoveSubmission,
   onUpdateSubmission,
   onExitPortal,
   currentUserAccount,
@@ -81,65 +187,65 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
   onOpenAuthModal,
   onAssignDemoTest,
 }) => {
+  // The portal only ever shows data belonging to the signed-in student
+  const lookupEmail = (currentUserAccount?.email || '').toLowerCase();
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
   const [activeInvitationId, setActiveInvitationId] = useState<string>('');
-  const [lookupEmail, setLookupEmail] = useState<string>(currentUserAccount?.email || 'alex.chen@stanford.edu');
+  const [portalNotice, setPortalNotice] = useState<string | null>(null);
 
-  // Meeting scheduling state
-  const [meetingDateInput, setMeetingDateInput] = useState('');
-  const [meetingTimeInput, setMeetingTimeInput] = useState('10:00 AM EST');
-  const [isRescheduling, setIsRescheduling] = useState(false);
-  const [scheduleSuccessMsg, setScheduleSuccessMsg] = useState<string | null>(null);
-  const [rsvpNotification, setRsvpNotification] = useState<string | null>(null);
-
-  const handleRSVP = (status: 'Accepted' | 'Declined', sub: ApplicantSubmission) => {
-    const updated = { ...sub, applicantResponseToInterview: status };
-    if (onUpdateSubmission) {
-      onUpdateSubmission(updated);
-    }
-    if (completedSubmission?.id === sub.id) {
-      setCompletedSubmission(updated);
-    }
-    setRsvpNotification(`You have successfully ${status === 'Accepted' ? 'accepted' : 'declined'} the interview invitation for ${sub.applicantName}.`);
-    setTimeout(() => setRsvpNotification(null), 4500);
+  const showNotice = (message: string, ms = 4500) => {
+    setPortalNotice(message);
+    setTimeout(() => setPortalNotice(null), ms);
   };
 
-  const activeAssessment = assessments.find((a) => a.id === selectedAssessmentId) || assessments[0] || assessments[1];
-  const examQuestions = (activeAssessment?.questionIds || ['q-mc-1', 'q-math-1', 'q-prog-1'])
-    .map((id) => questionBank.find((q) => q.id === id))
-    .filter((q): q is Question => q !== undefined);
+  const getAssessment = (id?: string) => assessments.find((a) => a.id === id);
+  const activeAssessment = getAssessment(selectedAssessmentId);
+  const integrityOptions: IntegrityOptions = { ...DEFAULT_INTEGRITY_OPTIONS, ...(activeAssessment?.integrityOptions || {}) };
+  const assessmentProfessor = professors.find((p) => p.id === activeAssessment?.professorId);
+  const timeLimitSeconds = (activeAssessment?.timeLimitMinutes || 60) * 60;
+  const graceSeconds = assessmentProfessor?.allowLateSubmissions ? LATE_GRACE_SECONDS : 0;
+
+  const mySubmissions = submissions.filter((s) => s.applicantEmail.toLowerCase() === lookupEmail && !s.hiddenByApplicant);
+  const myInterviews = mySubmissions.filter((s) => s.professorDecision === 'Interview');
+  const myInvites = invitations.filter((i) => i.applicantEmail.toLowerCase() === lookupEmail);
+  // Scores are only shown to students when the professor enabled "Applicant Score Visibility"
+  const canSeeScore = (sub: ApplicantSubmission) => Boolean(getAssessment(sub.assessmentId)?.isScoreVisible);
+  const findSubmissionForInvite = (inv: AssessmentInvitation) =>
+    submissions.find((s) => s.invitationId === inv.id) ||
+    submissions.find((s) => !s.invitationId && s.assessmentId === inv.assessmentId && s.applicantEmail.toLowerCase() === lookupEmail);
+
+  const handleRSVP = (status: 'Accepted' | 'Declined', sub: ApplicantSubmission) => {
+    if (onUpdateSubmission) {
+      onUpdateSubmission({ ...sub, applicantResponseToInterview: status });
+    }
+    showNotice(`You have successfully ${status === 'Accepted' ? 'accepted' : 'declined'} the interview invitation.`);
+  };
+
+  const handleHideSubmission = (sub: ApplicantSubmission) => {
+    // Only hides it from the student's dashboard; the professor's records are untouched
+    if (onUpdateSubmission) onUpdateSubmission({ ...sub, hiddenByApplicant: true });
+  };
+
+  const openSubmissionStatus = (sub: ApplicantSubmission) => {
+    setCompletedSubmissionId(sub.id);
+    setSelectedAssessmentId(sub.assessmentId);
+    setStep('completed');
+  };
 
   // Portal Steps: 'dashboard' -> 'invite' -> 'testing' -> 'completed'
   const [step, setStep] = useState<'dashboard' | 'invite' | 'testing' | 'completed'>('dashboard');
   const [dashboardSection, setDashboardSection] = useState<'all' | 'interviews'>('all');
 
-  // Candidate Form
-  const [applicantName, setApplicantName] = useState(currentUserAccount?.name || 'Alexander Vance');
-  const [applicantEmail, setApplicantEmail] = useState(currentUserAccount?.email || 'alex.vance@berkeley.edu');
-  const [applicantPersonalEmail, setApplicantPersonalEmail] = useState(currentUserAccount?.secondaryEmail || 'alex.vance.dev@gmail.com');
-  const [university, setUniversity] = useState(currentUserAccount?.university || 'UC Berkeley');
-  const [degreeProgram, setDegreeProgram] = useState(currentUserAccount?.degreeProgram || 'B.S. in Electrical Engineering & Computer Science');
-  const [gpa, setGpa] = useState('3.94');
-  const [agreedToPledge, setAgreedToPledge] = useState(true);
+  // Candidate identity comes from the signed-in account; only supplementary details are editable
+  const applicantName = currentUserAccount?.name || '';
+  const applicantEmail = currentUserAccount?.email || '';
+  const [applicantPersonalEmail, setApplicantPersonalEmail] = useState(currentUserAccount?.secondaryEmail || '');
+  const [university, setUniversity] = useState(currentUserAccount?.university || '');
+  const [degreeProgram, setDegreeProgram] = useState(currentUserAccount?.degreeProgram || '');
+  const [gpa, setGpa] = useState('');
+  const [agreedToPledge, setAgreedToPledge] = useState(false);
 
-  useEffect(() => {
-    if (currentUserAccount?.email) {
-      setLookupEmail(currentUserAccount.email);
-      setApplicantName(currentUserAccount.name);
-      setApplicantEmail(currentUserAccount.email);
-      if (currentUserAccount.secondaryEmail) setApplicantPersonalEmail(currentUserAccount.secondaryEmail);
-      if (currentUserAccount.university) setUniversity(currentUserAccount.university);
-      if (currentUserAccount.degreeProgram) setDegreeProgram(currentUserAccount.degreeProgram);
-      setLastSeenInterviewCount(-1);
-    }
-  }, [currentUserAccount]);
-
-  const activeInterviewCount = submissions.filter(
-    (s) =>
-      s.applicantEmail.toLowerCase() === lookupEmail.toLowerCase() &&
-      (s.professorDecision === 'Interview' || s.meetingLink || s.interviewDate)
-  ).length;
-
+  const activeInterviewCount = myInterviews.length;
   const [lastSeenInterviewCount, setLastSeenInterviewCount] = useState(-1);
 
   useEffect(() => {
@@ -154,15 +260,36 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
   }, [activeInterviewCount, step, lastSeenInterviewCount]);
 
   // Testing State
+  const [questionOrder, setQuestionOrder] = useState<string[]>([]);
+  const [optionOrders, setOptionOrders] = useState<Record<string, string[]>>({});
+  const examQuestions = questionOrder
+    .map((id) => questionBank.find((q) => q.id === id))
+    .filter((q): q is Question => q !== undefined);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [responses, setResponses] = useState<Record<string, { answer: any; timeSpentSeconds: number }>>({});
-  const [timeLeftSeconds, setTimeLeftSeconds] = useState((activeAssessment?.timeLimitMinutes || 60) * 60);
+  const [responses, setResponses] = useState<ResponseDraft>({});
+  const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [tabSwitches, setTabSwitches] = useState(0);
   const [showCheatWarning, setShowCheatWarning] = useState(false);
   const [testCaseResults, setTestCaseResults] = useState<Record<string, string>>({});
-  const [runningCode, setRunningCode] = useState(false);
   const [isGrading, setIsGrading] = useState(false);
-  const [completedSubmission, setCompletedSubmission] = useState<ApplicantSubmission | null>(null);
+  const [completedSubmissionId, setCompletedSubmissionId] = useState<string | null>(null);
+  const [justSubmitted, setJustSubmitted] = useState<ApplicantSubmission | null>(null);
+  const [integrityEvents, setIntegrityEvents] = useState<string[]>([]);
+  const submittingRef = useRef(false);
+  const startedAtRef = useRef<number | null>(null);
+  const timeSpentRef = useRef<Record<string, number>>({});
+  const activeQuestionRef = useRef<{ id: string | null; enteredAt: number }>({ id: null, enteredAt: Date.now() });
+
+  // Always show the latest saved version (professor decisions and RSVPs update it after submission)
+  const completedSubmission =
+    (completedSubmissionId && submissions.find((s) => s.id === completedSubmissionId)) ||
+    (justSubmitted && justSubmitted.id === completedSubmissionId ? justSubmitted : null);
+
+  const elapsedSeconds = startedAtMs ? Math.max(0, Math.floor((nowMs - startedAtMs) / 1000)) : 0;
+  const timeLeftSeconds = Math.max(0, timeLimitSeconds - elapsedSeconds);
+  const isInGracePeriod = step === 'testing' && graceSeconds > 0 && elapsedSeconds >= timeLimitSeconds;
+  const graceLeftSeconds = Math.max(0, timeLimitSeconds + graceSeconds - elapsedSeconds);
 
   // CollegeBoard Digital SAT Layout States
   const [flaggedQuestions, setFlaggedQuestions] = useState<Record<string, boolean>>({});
@@ -184,8 +311,39 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
     return params.get('mode') === 'lockdown' || params.get('lockdown') === 'true';
   });
   const [copyPasteAttempts, setCopyPasteAttempts] = useState<number>(0);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(document.fullscreenElement));
   const [lockdownAlert, setLockdownAlert] = useState<string | null>(null);
+
+  const progressKey = (inviteOrAssessmentId: string) => `sifted-progress:${lookupEmail}:${inviteOrAssessmentId}`;
+  const detailsKey = `sifted-candidate-details:${lookupEmail}`;
+
+  // Reset everything when a different student signs in while the portal stays mounted
+  const previousAccountIdRef = useRef(currentUserAccount?.id);
+  useEffect(() => {
+    if (previousAccountIdRef.current === currentUserAccount?.id) return;
+    previousAccountIdRef.current = currentUserAccount?.id;
+    setApplicantPersonalEmail(currentUserAccount?.secondaryEmail || '');
+    setUniversity(currentUserAccount?.university || '');
+    setDegreeProgram(currentUserAccount?.degreeProgram || '');
+    setGpa('');
+    setAgreedToPledge(false);
+    setStep('dashboard');
+    setDashboardSection('all');
+    setSelectedAssessmentId('');
+    setActiveInvitationId('');
+    setCompletedSubmissionId(null);
+    setLastSeenInterviewCount(-1);
+  }, [currentUserAccount?.id]);
+
+  const logIntegrityEvent = (message: string) => {
+    const elapsed = startedAtRef.current ? Math.floor((Date.now() - startedAtRef.current) / 1000) : 0;
+    setIntegrityEvents((prev) => [...prev, `[${formatTime(elapsed)}] ${message}`]);
+  };
+
+  const showLockdownAlert = (message: string, ms = 4000) => {
+    setLockdownAlert(message);
+    setTimeout(() => setLockdownAlert(null), ms);
+  };
 
   const toggleFullscreen = () => {
     try {
@@ -205,20 +363,28 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
   };
 
   const toggleEliminateOption = (questionId: string, option: string) => {
-    setEliminatedOptions((prev) => {
-      const current = prev[questionId] || [];
-      const exists = current.includes(option);
-      return {
-        ...prev,
-        [questionId]: exists ? current.filter((o) => o !== option) : [...current, option],
-      };
+    const current = eliminatedOptions[questionId] || [];
+    const exists = current.includes(option);
+    setEliminatedOptions({
+      ...eliminatedOptions,
+      [questionId]: exists ? current.filter((o) => o !== option) : [...current, option],
     });
+    // Striking out the currently selected option also deselects it
+    if (!exists && responses[questionId]?.answer === option) {
+      setResponses((prev) => ({ ...prev, [questionId]: { ...prev[questionId], answer: '' } }));
+    }
   };
 
   const isQuestionAnswered = (questionId: string) => {
+    const question = questionBank.find((q) => q.id === questionId);
     const ans = responses[questionId]?.answer;
     if (ans === undefined || ans === null) return false;
-    if (typeof ans === 'string') return ans.trim().length > 0;
+    if (typeof ans === 'string') {
+      // Untouched starter code doesn't count as an answer
+      if (question?.type === 'programming' && question.codeTemplate && ans.trim() === question.codeTemplate.trim()) return false;
+      return ans.trim().length > 0;
+    }
+    if (Array.isArray(ans)) return ans.length > 0;
     return true;
   };
 
@@ -229,309 +395,512 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
     } else if (btn === 'CE') {
       setCalcInput((prev) => prev.slice(0, -1));
     } else if (btn === '=') {
-      try {
-        const sanitized = calcInput.replace(/[^0-9+\-*/().%]/g, '');
-        // eslint-disable-next-line no-eval
-        const res = eval(sanitized);
-        setCalcResult(String(res));
-      } catch (err) {
+      setCalcResult(evaluateArithmetic(calcInput));
+    } else if (btn === '√' || btn === 'x²') {
+      const base = calcInput ? evaluateArithmetic(calcInput) : calcResult || '0';
+      const val = parseFloat(base);
+      if (!Number.isFinite(val)) {
         setCalcResult('Error');
-      }
-    } else if (btn === '√') {
-      try {
-        const val = parseFloat(calcInput || calcResult || '0');
-        setCalcResult(String(Math.sqrt(val)));
-      } catch (err) {
-        setCalcResult('Error');
-      }
-    } else if (btn === 'x²') {
-      try {
-        const val = parseFloat(calcInput || calcResult || '0');
-        setCalcResult(String(val * val));
-      } catch (err) {
-        setCalcResult('Error');
+      } else {
+        const result = btn === '√' ? Math.sqrt(val) : val * val;
+        setCalcResult(Number.isFinite(result) ? String(Math.round(result * 1e10) / 1e10) : 'Error');
       }
     } else {
-      setCalcInput((prev) => prev + btn);
+      // Continue calculating from the previous result when starting a new expression with an operator
+      setCalcInput((prev) => (!prev && calcResult && calcResult !== 'Error' && /[+\-*/%]/.test(btn) ? calcResult + btn : prev + btn));
     }
   };
 
   const currentQuestion = examQuestions[currentQuestionIndex];
 
-  // Timer & Tab switch detection simulation
+  const flushActiveQuestionTime = () => {
+    const { id, enteredAt } = activeQuestionRef.current;
+    const now = Date.now();
+    if (id) {
+      timeSpentRef.current[id] = (timeSpentRef.current[id] || 0) + (now - enteredAt) / 1000;
+    }
+    activeQuestionRef.current = { id, enteredAt: now };
+  };
+
+  // Track how long the candidate spends on each question
+  const visibleQuestionId = step === 'testing' && !showSatReviewScreen ? currentQuestion?.id ?? null : null;
+  useEffect(() => {
+    flushActiveQuestionTime();
+    activeQuestionRef.current = { id: visibleQuestionId, enteredAt: Date.now() };
+  }, [visibleQuestionId]);
+
+  // Exam clock
+  useEffect(() => {
+    if (step !== 'testing') return;
+    setNowMs(Date.now());
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [step]);
+
+  // Integrity monitoring, according to the professor's assessment settings
   useEffect(() => {
     if (step !== 'testing') return;
 
-    const timer = setInterval(() => {
-      setTimeLeftSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleSubmitAssessment();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
     const handleVisibilityChange = () => {
-      if (document.hidden && step === 'testing') {
+      if (document.hidden && integrityOptions.tabSwitchDetection) {
         setTabSwitches((prev) => prev + 1);
+        logIntegrityEvent('Browser tab/window focus lost.');
         setShowCheatWarning(true);
         setTimeout(() => setShowCheatWarning(false), 5000);
       }
     };
 
-    const handleCopy = (e: ClipboardEvent) => {
+    const handleClipboard = (e: ClipboardEvent) => {
+      if (!integrityOptions.copyPasteDetection) return;
       e.preventDefault();
       setCopyPasteAttempts((prev) => prev + 1);
-      setLockdownAlert('⚠️ Security Violation: Copying assessment content is prohibited in Bluebook Secure Mode.');
-      setTimeout(() => setLockdownAlert(null), 4000);
-    };
-
-    const handlePaste = (e: ClipboardEvent) => {
-      e.preventDefault();
-      setCopyPasteAttempts((prev) => prev + 1);
-      setLockdownAlert('⚠️ Security Violation: Pasting external content or code is strictly disabled.');
-      setTimeout(() => setLockdownAlert(null), 4000);
+      logIntegrityEvent(`Blocked ${e.type} attempt.`);
+      showLockdownAlert(
+        e.type === 'paste'
+          ? '⚠️ Security Violation: Pasting external content or code is strictly disabled.'
+          : '⚠️ Security Violation: Copying assessment content is prohibited in Bluebook Secure Mode.'
+      );
     };
 
     const handleContextMenu = (e: MouseEvent) => {
+      if (!isLockdownActive) return;
       e.preventDefault();
-      setLockdownAlert('⚠️ Security Violation: Right-click context menu is locked during testing.');
-      setTimeout(() => setLockdownAlert(null), 3000);
+      showLockdownAlert('⚠️ Security Violation: Right-click context menu is locked during testing.', 3000);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === 'F12' ||
-        (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'C' || e.key === 'J')) ||
-        (e.ctrlKey && (e.key === 'c' || e.key === 'v' || e.key === 'C' || e.key === 'V')) ||
-        (e.metaKey && (e.key === 'c' || e.key === 'v' || e.key === 'C' || e.key === 'V'))
-      ) {
+      const key = e.key.toLowerCase();
+      const isClipboardShortcut = (e.ctrlKey || e.metaKey) && (key === 'c' || key === 'v' || key === 'x');
+      const isDevtoolsShortcut = e.key === 'F12' || (e.ctrlKey && e.shiftKey && (key === 'i' || key === 'c' || key === 'j'));
+      if ((isClipboardShortcut && integrityOptions.copyPasteDetection) || (isDevtoolsShortcut && isLockdownActive)) {
         e.preventDefault();
-        setCopyPasteAttempts((prev) => prev + 1);
-        setLockdownAlert(`⚠️ Security Alert: Shortcut "${e.key}" is intercepted by Bluebook Proctoring Engine.`);
-        setTimeout(() => setLockdownAlert(null), 3500);
+        if (isClipboardShortcut) {
+          setCopyPasteAttempts((prev) => prev + 1);
+          logIntegrityEvent(`Blocked clipboard shortcut (${e.key}).`);
+        }
+        showLockdownAlert(`⚠️ Security Alert: Shortcut "${e.key}" is intercepted by Bluebook Proctoring Engine.`, 3500);
       }
     };
 
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
-      if (!document.fullscreenElement && isLockdownActive && step === 'testing') {
+      if (!document.fullscreenElement && isLockdownActive) {
         setTabSwitches((prev) => prev + 1);
-        setLockdownAlert('⚠️ Integrity Alert: Fullscreen lockdown exited! This event is logged to your faculty report.');
-        setTimeout(() => setLockdownAlert(null), 4000);
+        logIntegrityEvent('Exited fullscreen lockdown.');
+        showLockdownAlert('⚠️ Integrity Alert: Fullscreen lockdown exited! This event is logged to your faculty report.');
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    document.addEventListener('copy', handleCopy);
-    document.addEventListener('paste', handlePaste);
+    document.addEventListener('copy', handleClipboard);
+    document.addEventListener('cut', handleClipboard);
+    document.addEventListener('paste', handleClipboard);
     document.addEventListener('contextmenu', handleContextMenu);
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
-      clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('copy', handleCopy);
-      document.removeEventListener('paste', handlePaste);
+      document.removeEventListener('copy', handleClipboard);
+      document.removeEventListener('cut', handleClipboard);
+      document.removeEventListener('paste', handleClipboard);
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [step, isLockdownActive]);
+  }, [step, isLockdownActive, integrityOptions.tabSwitchDetection, integrityOptions.copyPasteDetection]);
 
+  // Save in-progress answers so the test can be resumed after a reload
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('mode') === 'lockdown' || params.get('lockdown') === 'true') {
-      setIsLockdownActive(true);
-    }
-    if (params.get('autostart') === 'true' && activeAssessment && (step === 'invite' || step === 'welcome')) {
-      setAgreedToPledge(true);
-      const timeout = setTimeout(() => {
-        handleStartTest(true);
-      }, 600);
-      return () => clearTimeout(timeout);
-    }
-  }, [activeAssessment, step]);
+    if (step !== 'testing' || !startedAtMs) return;
+    const progress: SavedProgress = {
+      questionOrder,
+      optionOrders,
+      responses,
+      startedAtMs,
+      currentQuestionIndex,
+      tabSwitches,
+      copyPasteAttempts,
+      flaggedQuestions,
+      timeSpent: timeSpentRef.current,
+      integrityEvents,
+      isLockdownActive,
+    };
+    writeStorage(progressKey(activeInvitationId || selectedAssessmentId), progress);
+  }, [step, responses, currentQuestionIndex, tabSwitches, copyPasteAttempts, flaggedQuestions, integrityEvents, isLockdownActive]);
 
-  const handleStartTest = (enableLockdown?: boolean) => {
-    if (!agreedToPledge) {
-      alert('Please agree to the Academic Integrity Pledge before starting.');
-      return;
+  const getStartBlocker = (inv: AssessmentInvitation): string | null => {
+    const assessment = getAssessment(inv.assessmentId);
+    if (!assessment) return 'This assessment is no longer available. Please contact your professor.';
+    if (assessment.isActive === false) return 'Your professor has not published this assessment yet.';
+    if (inv.status === 'completed' || inv.status === 'reviewed' || findSubmissionForInvite(inv)) {
+      return 'You have already submitted this assessment.';
     }
-    if (!applicantEmail.trim() || !applicantPersonalEmail.trim()) {
-      alert('Please enter both your Primary University Email and Secondary Personal Email before starting.');
-      return;
+    if (inv.status !== 'in-progress' && isPastDeadline(inv.deadline)) {
+      return `The deadline for this assessment (${formatLocalDate(inv.deadline)}) has passed.`;
     }
+    if (!assessment.questionIds?.some((id) => questionBank.some((q) => q.id === id))) {
+      return 'This assessment has no questions yet. Please contact your professor.';
+    }
+    return null;
+  };
+
+  const validateCandidateDetails = (): string | null => {
+    if (!agreedToPledge) return 'Please agree to the Academic Integrity Pledge before starting.';
+    if (!EMAIL_PATTERN.test(applicantPersonalEmail.trim())) return 'Please enter a valid Secondary Personal Email before starting.';
     if (applicantEmail.trim().toLowerCase() === applicantPersonalEmail.trim().toLowerCase()) {
-      alert('Your University Email and Personal Email must be distinct email addresses.');
+      return 'Your University Email and Personal Email must be distinct email addresses.';
+    }
+    if (!university.trim() || !degreeProgram.trim()) return 'Please enter your current university and degree program.';
+    return null;
+  };
+
+  const startTest = (assessment: Assessment, invitationId: string, enableLockdown: boolean) => {
+    const saved = readStorage<SavedProgress>(progressKey(invitationId || assessment.id));
+    const questions = (assessment.questionIds || [])
+      .map((id) => questionBank.find((q) => q.id === id))
+      .filter((q): q is Question => q !== undefined);
+    if (questions.length === 0) {
+      alert('This assessment has no questions yet. Please contact your professor.');
       return;
     }
-    if (activeInvitationId && onUpdateInvitationStatus) {
-      onUpdateInvitationStatus(activeInvitationId, 'in-progress');
+    const options: IntegrityOptions = { ...DEFAULT_INTEGRITY_OPTIONS, ...(assessment.integrityOptions || {}) };
+
+    setSelectedAssessmentId(assessment.id);
+    setActiveInvitationId(invitationId);
+
+    if (saved && saved.questionOrder?.length) {
+      // Resume: the clock keeps running from the original start time
+      setQuestionOrder(saved.questionOrder);
+      setOptionOrders(saved.optionOrders || {});
+      setResponses(saved.responses || {});
+      setStartedAtMs(saved.startedAtMs);
+      startedAtRef.current = saved.startedAtMs;
+      setCurrentQuestionIndex(Math.min(saved.currentQuestionIndex || 0, saved.questionOrder.length - 1));
+      setTabSwitches(saved.tabSwitches || 0);
+      setCopyPasteAttempts(saved.copyPasteAttempts || 0);
+      setFlaggedQuestions(saved.flaggedQuestions || {});
+      setIntegrityEvents([...(saved.integrityEvents || []), 'Session resumed.']);
+      timeSpentRef.current = saved.timeSpent || {};
+    } else {
+      // Question order: shuffled per candidate if enabled; adaptive tests progress Basic → Research-Level
+      let ordered = options.randomizeQuestionOrder ? shuffle(questions) : [...questions];
+      if (assessment.isAdaptive) {
+        ordered = ordered.sort((a, b) => (DIFFICULTY_ORDER[a.difficulty] ?? 1) - (DIFFICULTY_ORDER[b.difficulty] ?? 1));
+      }
+      const orders: Record<string, string[]> = {};
+      const initialResponses: ResponseDraft = {};
+      ordered.forEach((q) => {
+        if (q.type === 'multiple-choice' && q.options) {
+          orders[q.id] = options.randomizeAnswerOrder && q.randomizeOptions !== false ? shuffle(q.options) : [...q.options];
+        }
+        initialResponses[q.id] = {
+          answer: q.type === 'programming' ? q.codeTemplate || '' : '',
+          timeSpentSeconds: 0,
+        };
+      });
+      const now = Date.now();
+      setQuestionOrder(ordered.map((q) => q.id));
+      setOptionOrders(orders);
+      setResponses(initialResponses);
+      setStartedAtMs(now);
+      startedAtRef.current = now;
+      setCurrentQuestionIndex(0);
+      setTabSwitches(0);
+      setCopyPasteAttempts(0);
+      setFlaggedQuestions({});
+      setIntegrityEvents([]);
+      timeSpentRef.current = {};
     }
-    if (enableLockdown || isLockdownActive) {
+
+    setShowSatReviewScreen(false);
+    setShowQuestionMenu(false);
+    setEliminatedOptions({});
+    setTestCaseResults({});
+    setScratchpadText('');
+    setCalcInput('');
+    setCalcResult('');
+    setLockdownAlert(null);
+    setShowCheatWarning(false);
+    setIsGrading(false);
+    submittingRef.current = false;
+    setNowMs(Date.now());
+
+    const invitation = invitations.find((i) => i.id === invitationId);
+    if (invitation && invitation.status === 'pending' && onUpdateInvitationStatus) {
+      onUpdateInvitationStatus(invitationId, 'in-progress');
+    }
+    if (enableLockdown || options.fullScreenMode || isLockdownActive) {
       setIsLockdownActive(true);
       try {
-        if (document.documentElement.requestFullscreen) {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(() => {});
         }
       } catch (e) {}
     }
-    // Initialize default responses
-    const initialResponses: Record<string, { answer: any; timeSpentSeconds: number }> = {};
-    examQuestions.forEach((q) => {
-      initialResponses[q.id] = {
-        answer: q.type === 'multiple-choice' ? '' : q.type === 'programming' ? (q.codeTemplate || '') : '',
-        timeSpentSeconds: 60,
-      };
-    });
-    setResponses(initialResponses);
     setStep('testing');
   };
 
+  const handleStartTest = (enableLockdown: boolean) => {
+    if (!activeAssessment) return;
+    const problem = validateCandidateDetails();
+    if (problem) {
+      alert(problem);
+      return;
+    }
+    startTest(activeAssessment, activeInvitationId, enableLockdown);
+  };
+
+  const handleOpenInvitation = (inv: AssessmentInvitation) => {
+    const blocker = getStartBlocker(inv);
+    if (blocker) {
+      showNotice(blocker);
+      return;
+    }
+    setSelectedAssessmentId(inv.assessmentId);
+    setActiveInvitationId(inv.id);
+    setStep('invite');
+  };
+
   const handleLaunchInNewTab = () => {
-    if (!agreedToPledge) {
-      alert('Please agree to the Academic Integrity Pledge before launching secure assessment.');
+    if (!activeAssessment) return;
+    const problem = validateCandidateDetails();
+    if (problem) {
+      alert(problem);
       return;
     }
-    if (!applicantEmail.trim() || !applicantPersonalEmail.trim()) {
-      alert('Please enter both your Primary University Email and Secondary Personal Email before launching.');
-      return;
-    }
-    if (applicantEmail.trim().toLowerCase() === applicantPersonalEmail.trim().toLowerCase()) {
-      alert('Your University Email and Personal Email must be distinct email addresses.');
-      return;
-    }
+    // Hand the candidate details to the new tab; it signs in as the same student and starts this invitation
+    writeStorage(detailsKey, { applicantPersonalEmail, university, degreeProgram, gpa });
     const url = new URL(window.location.href);
     url.searchParams.set('mode', 'lockdown');
     url.searchParams.set('autostart', 'true');
-    if (activeAssessment?.id) {
-      url.searchParams.set('assessmentId', activeAssessment.id);
-    }
+    if (currentUserAccount?.id) url.searchParams.set('accountId', currentUserAccount.id);
+    if (activeInvitationId) url.searchParams.set('invitationId', activeInvitationId);
     window.open(url.toString(), '_blank', 'noopener,noreferrer');
+    setStep('dashboard');
+    showNotice('Your secure exam opened in a new tab. Complete it there — your progress is saved automatically.', 7000);
   };
+
+  // Secure-tab launch: start the requested invitation once on load
+  const autostartHandledRef = useRef(false);
+  useEffect(() => {
+    if (autostartHandledRef.current) return;
+    autostartHandledRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('autostart') !== 'true') return;
+    const invitationId = params.get('invitationId');
+    // These parameters are one-shot: a reload should land on the dashboard (and offer "Resume")
+    params.delete('autostart');
+    params.delete('invitationId');
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+
+    const inv = myInvites.find((i) => i.id === invitationId);
+    if (!inv) return;
+    const blocker = getStartBlocker(inv);
+    const assessment = getAssessment(inv.assessmentId);
+    if (blocker || !assessment) {
+      showNotice(blocker || 'This assessment is no longer available.');
+      return;
+    }
+    const details = readStorage<{ applicantPersonalEmail: string; university: string; degreeProgram: string; gpa: string }>(detailsKey);
+    if (details) {
+      setApplicantPersonalEmail(details.applicantPersonalEmail || '');
+      setUniversity(details.university || '');
+      setDegreeProgram(details.degreeProgram || '');
+      setGpa(details.gpa || '');
+    }
+    setAgreedToPledge(true);
+    startTest(assessment, inv.id, true);
+  }, []);
 
   const handleAnswerChange = (val: any) => {
     if (!currentQuestion) return;
-    setResponses({
-      ...responses,
+    setResponses((prev) => ({
+      ...prev,
       [currentQuestion.id]: {
-        ...responses[currentQuestion.id],
+        ...prev[currentQuestion.id],
         answer: val,
       },
-    });
+    }));
   };
 
   const handleRunTestCases = () => {
     if (!currentQuestion) return;
-    setRunningCode(true);
-    setTimeout(() => {
-      setRunningCode(false);
-      setTestCaseResults({
-        ...testCaseResults,
-        [currentQuestion.id]: 'PASSED: All 2 professor test cases executed successfully (100% output match).',
-      });
-    }, 1200);
+    const visibleCases = (currentQuestion.testCases || []).filter((tc) => !tc.isHidden);
+    const summary = visibleCases.length
+      ? visibleCases.map((tc, i) => `Test ${i + 1}: input ${tc.input} → expected ${tc.expectedOutput}`).join('\n')
+      : 'No sample test cases were provided for this question.';
+    setTestCaseResults({
+      ...testCaseResults,
+      [currentQuestion.id]: `Code is not executed in the browser. Your solution is saved and will be reviewed against the professor's test cases after submission.\n${summary}`,
+    });
   };
 
-  const handleSubmitAssessment = async () => {
+  // Lets the code editor indent with Tab instead of moving focus out of the textarea
+  const handleCodeKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    const target = e.currentTarget;
+    const { selectionStart, selectionEnd, value } = target;
+    const indent = '    ';
+    const next = value.slice(0, selectionStart) + indent + value.slice(selectionEnd);
+    handleAnswerChange(next);
+    requestAnimationFrame(() => {
+      target.selectionStart = target.selectionEnd = selectionStart + indent.length;
+    });
+  };
+
+  const handleSubmitAssessment = async (isAutoSubmit = false) => {
+    if (submittingRef.current || !activeAssessment) return;
+    if (!isAutoSubmit) {
+      const unanswered = examQuestions.filter((q) => !isQuestionAnswered(q.id)).length;
+      if (unanswered > 0 && !window.confirm(`You have ${unanswered} unanswered question(s). Submit your assessment anyway?`)) {
+        return;
+      }
+    }
+    submittingRef.current = true;
     setIsGrading(true);
+    flushActiveQuestionTime();
+
+    const finishedAt = Date.now();
+    const timeAnalysis: Record<string, number> = {};
+    const timedResponses: ResponseDraft = {};
+    examQuestions.forEach((q) => {
+      const seconds = Math.round(timeSpentRef.current[q.id] || 0);
+      timeAnalysis[q.id] = seconds;
+      timedResponses[q.id] = { answer: responses[q.id]?.answer ?? '', timeSpentSeconds: seconds };
+    });
+
     // Calculate difficulty-weighted score and enforce zero points on empty/trivial answers
-    const graded = calculateSubmissionGrading(examQuestions, responses);
-    const formattedResponses = graded.evaluatedResponses;
+    const graded = calculateSubmissionGrading(examQuestions, timedResponses);
+    let evaluatedResponses: Record<string, QuestionResponseItem> = graded.evaluatedResponses;
 
-    // Call server-side Gemini AI for grading and recommendation
-    let aiRec: any = graded.interviewRecommendation;
-    let aiExplanation = graded.recommendationExplanation;
-    let aiSum = graded.aiSummary;
-    let aiLevel = graded.hireabilityLevel;
-    let aiConf = 96.2;
-    let aiProb = tabSwitches > 3 ? 45 : 12.5;
-
+    // Ask the server-side AI to grade open-ended answers against the rubrics (when configured)
+    let ai: any = null;
     try {
       const res = await fetch('/api/ai/grade-submission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           applicantName,
-          responses: formattedResponses,
+          responses: evaluatedResponses,
           questions: examQuestions,
-          hireabilityLevel: graded.hireabilityLevel,
           overallScore: graded.overallScore,
           totalWeightedScore: graded.totalWeightedScore,
           maxTotalWeightedScore: graded.maxTotalWeightedScore,
         }),
       });
       const data = await res.json();
-      if (data && data.success) {
-        if (data.interviewRecommendation) aiRec = data.interviewRecommendation;
-        if (data.recommendationExplanation) aiExplanation = data.recommendationExplanation;
-        if (data.aiSummary) aiSum = data.aiSummary;
-        if (data.hireabilityLevel) aiLevel = data.hireabilityLevel;
-        if (data.confidenceScore) aiConf = data.confidenceScore;
-        if (data.aiGeneratedProbability !== undefined) aiProb = data.aiGeneratedProbability;
-      }
+      if (data && data.success && !data.isFallback) ai = data;
     } catch (err) {
-      console.error('Server AI grading fallback:', err);
+      console.error('Server AI grading unavailable, using built-in grading:', err);
     }
 
-    // Strict rule: do not let server override tier or score if candidate submitted empty or boilerplate answers
-    if (graded.emptyCount >= Math.ceil(examQuestions.length / 2) || graded.overallScore < 50) {
-      aiLevel = 'Tier 4: Does Not Meet Technical Bar';
-      aiRec = 'Do Not Recommend';
+    if (ai && Array.isArray(ai.questionScores)) {
+      evaluatedResponses = { ...evaluatedResponses };
+      ai.questionScores.forEach((qs: { questionId: string; score: number; feedback: string }) => {
+        const existing = evaluatedResponses[qs.questionId];
+        if (!existing || graded.emptyCount === examQuestions.length) return;
+        evaluatedResponses[qs.questionId] = {
+          ...existing,
+          aiScore: existing.aiScore === 0 && existing.aiConfidence === 99 ? 0 : qs.score, // empty answers stay at zero
+          aiFeedback: qs.feedback || existing.aiFeedback,
+          aiConfidence: ai.confidenceScore ?? 85,
+          isCorrect: qs.score >= existing.maxScore * 0.7,
+        };
+      });
     }
 
-    const submission: ApplicantSubmission = {
-      id: `sub-${Date.now()}`,
-      assessmentId: activeAssessment?.id || 'as-ai-phd-2026',
+    const responseList = Object.values(evaluatedResponses);
+    const avgConfidence = responseList.length
+      ? Math.round((responseList.reduce((a, r) => a + r.aiConfidence, 0) / responseList.length) * 10) / 10
+      : 0;
+    const aiDetectionEnabled = integrityOptions.aiAnswerDetection && ai !== null;
+    const aiProb = aiDetectionEnabled ? Number(ai.aiGeneratedProbability) || 0 : 0;
+    const flagThreshold = getAiFlagThreshold(assessmentProfessor?.aiSensitivity);
+    const fullscreenExits = integrityEvents.filter((e) => e.includes('Exited fullscreen')).length;
+
+    const draft: ApplicantSubmission = {
+      id: `sub-${finishedAt}`,
+      assessmentId: activeAssessment.id,
+      invitationId: activeInvitationId || undefined,
       applicantName,
-      applicantEmail,
-      secondaryEmail: applicantPersonalEmail,
-      university,
-      degreeProgram,
-      gpa,
+      applicantEmail: applicantEmail.toLowerCase(),
+      secondaryEmail: applicantPersonalEmail.trim(),
+      university: university.trim(),
+      degreeProgram: degreeProgram.trim(),
+      gpa: gpa.trim() || undefined,
       status: 'completed',
-      startTime: new Date().toISOString(),
-      finishTime: new Date().toISOString(),
-      totalTimeSpentSeconds: ((activeAssessment?.timeLimitMinutes || 60) * 60) - timeLeftSeconds,
-      responses: formattedResponses,
+      startTime: new Date(startedAtRef.current || finishedAt).toISOString(),
+      finishTime: new Date(finishedAt).toISOString(),
+      totalTimeSpentSeconds: Math.min(
+        timeLimitSeconds + graceSeconds,
+        Math.round((finishedAt - (startedAtRef.current || finishedAt)) / 1000)
+      ),
+      responses: evaluatedResponses,
       overallScore: graded.overallScore,
       totalWeightedScore: graded.totalWeightedScore,
       maxTotalWeightedScore: graded.maxTotalWeightedScore,
-      hireabilityLevel: aiLevel,
       topicBreakdown: graded.topicBreakdown,
-      timeAnalysis: {},
-      confidenceScore: aiConf,
-      interviewRecommendation: aiRec,
-      recommendationExplanation: aiExplanation,
-      aiSummary: aiSum,
+      timeAnalysis,
+      confidenceScore: ai?.confidenceScore ?? avgConfidence,
+      interviewRecommendation: graded.interviewRecommendation,
+      recommendationExplanation: graded.recommendationExplanation,
+      aiSummary: graded.aiSummary,
       integrityReport: {
         tabSwitchCount: tabSwitches,
-        copyPasteAttempts: 0,
+        copyPasteAttempts,
         aiGeneratedProbability: aiProb,
-        integrityFlagged: tabSwitches > 5 || aiProb > 50 || graded.emptyCount > 0,
+        integrityFlagged: tabSwitches > 5 || copyPasteAttempts > 3 || (aiDetectionEnabled && aiProb > flagThreshold) || graded.emptyCount > 0,
         notes: [
-          `Tab switches recorded: ${tabSwitches}.`,
-          'Full screen session monitored.',
-          graded.emptyCount > 0
-            ? `FLAGGED: ${graded.emptyCount} empty or unmodified boilerplate answers submitted (0 points awarded).`
-            : 'Zero suspicious clipboard paste anomalies logged.',
+          `Tab switches recorded: ${tabSwitches}${integrityOptions.tabSwitchDetection ? '' : ' (tab switch detection disabled)'}.`,
+          `Blocked copy/paste attempts: ${copyPasteAttempts}${integrityOptions.copyPasteDetection ? '' : ' (copy/paste detection disabled)'}.`,
+          isLockdownActive || fullscreenExits > 0
+            ? `Full screen session monitored${fullscreenExits ? ` — FLAGGED: exited fullscreen ${fullscreenExits} time(s)` : ''}.`
+            : 'Taken without fullscreen lockdown.',
+          !integrityOptions.aiAnswerDetection
+            ? 'AI-generated answer detection disabled for this assessment.'
+            : ai
+            ? `AI-generated text probability: ${aiProb}% (flag threshold ${flagThreshold}%).`
+            : 'AI-generated text analysis unavailable (Gemini AI not configured).',
+          ...(isAutoSubmit ? ['Auto-submitted when the time limit expired.'] : []),
+          ...(graded.emptyCount > 0
+            ? [`FLAGGED: ${graded.emptyCount} empty or unmodified boilerplate answers submitted (0 points awarded).`]
+            : []),
+          ...integrityEvents,
         ],
       },
       professorNotes: '',
       professorDecision: 'Pending',
     };
 
+    // Re-total with any AI per-question scores, then derive the tier from the final score
+    const submission = ai ? applyScoreOverrides(draft, {}, examQuestions) : draft;
+    const level = getHireabilityLevel(submission.overallScore, graded.emptyCount, examQuestions.length);
+    submission.hireabilityLevel = level;
+    submission.interviewRecommendation = ai?.interviewRecommendation || getRecommendationFromLevel(level);
+    if (ai?.recommendationExplanation) submission.recommendationExplanation = ai.recommendationExplanation;
+    if (ai?.aiSummary) submission.aiSummary = ai.aiSummary;
+
+    // Strict rule: never recommend a candidate who left half the test empty or scored under 50%
+    if (graded.emptyCount >= Math.ceil(examQuestions.length / 2) || submission.overallScore < 50) {
+      submission.hireabilityLevel = 'Tier 4: Does Not Meet Technical Bar';
+      submission.interviewRecommendation = 'Do Not Recommend';
+    }
+
     setIsGrading(false);
     if (activeInvitationId && onUpdateInvitationStatus) {
       onUpdateInvitationStatus(activeInvitationId, 'completed');
     }
-    setCompletedSubmission(submission);
+    writeStorage(progressKey(activeInvitationId || activeAssessment.id), null);
+    setJustSubmitted(submission);
+    setCompletedSubmissionId(submission.id);
     onCompleteAssessment(submission);
     setStep('completed');
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
 
     // Confetti celebration!
     try {
@@ -544,6 +913,13 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
       console.error('Confetti error:', e);
     }
   };
+
+  // Auto-submit once the time limit (plus any late-submission grace period) runs out
+  useEffect(() => {
+    if (step === 'testing' && startedAtMs && elapsedSeconds >= timeLimitSeconds + graceSeconds) {
+      handleSubmitAssessment(true);
+    }
+  }, [step, startedAtMs, elapsedSeconds, timeLimitSeconds, graceSeconds]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -560,7 +936,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
             <GraduationCap className="w-5 h-5" />
           </div>
           <div>
-            <span className="font-bold text-sm tracking-tight block">ScholarScreen AI • Candidate Portal</span>
+            <span className="font-bold text-sm tracking-tight block">Sifted • Candidate Portal</span>
             <span className="text-[11px] text-slate-400">
               {activeAssessment?.title || 'Graduate Admissions Screening Exam'}
             </span>
@@ -568,21 +944,29 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
         </div>
 
         <button
-          onClick={onExitPortal}
+          onClick={() => {
+            if (
+              step === 'testing' &&
+              !window.confirm('Leave the exam? Your answers are saved, but the timer keeps running. You can resume from your dashboard.')
+            ) {
+              return;
+            }
+            onExitPortal();
+          }}
           className="text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-1.5 rounded-md border border-slate-700 transition-colors"
         >
-          Exit Portal (Back to Professor View)
+          Sign Out
         </button>
       </div>
 
-      {/* RSVP Notification Banner */}
-      {rsvpNotification && (
+      {/* Notification Banner */}
+      {portalNotice && (
         <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-lg flex items-center justify-between text-sm font-bold animate-fade-in border border-emerald-500">
           <div className="flex items-center space-x-2.5">
             <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-200" />
-            <span>{rsvpNotification}</span>
+            <span>{portalNotice}</span>
           </div>
-          <button onClick={() => setRsvpNotification(null)} className="text-white hover:text-emerald-200 font-extrabold px-2 py-1">✕</button>
+          <button onClick={() => setPortalNotice(null)} className="text-white hover:text-emerald-200 font-extrabold px-2 py-1">✕</button>
         </div>
       )}
 
@@ -629,19 +1013,10 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               </div>
             </div>
 
-            {/* Email search override bar */}
             <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-              <div className="flex items-center space-x-2 text-slate-600">
-                <Mail className="w-4 h-4 text-emerald-600" />
-                <span>Showing test invitations & status specifically for:</span>
-                <input
-                  type="email"
-                  value={lookupEmail}
-                  onChange={(e) => setLookupEmail(e.target.value)}
-                  placeholder="Enter candidate email..."
-                  className="px-2.5 py-1 border border-slate-300 rounded-md font-bold text-slate-900 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+              <span className="text-slate-600">
+                Showing test invitations & status for <strong className="text-slate-900">{lookupEmail}</strong>
+              </span>
               <span className="text-[11px] text-slate-400">
                 All application status changes remain synchronized with the faculty portal.
               </span>
@@ -650,10 +1025,10 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
 
           {/* Quick Metrics & Overview Bar */}
           {(() => {
-            const mySubmissions = submissions.filter((s) => s.applicantEmail.toLowerCase() === lookupEmail.toLowerCase());
-            const pendingInterviews = mySubmissions.filter((s) => s.professorDecision === 'Pending' || s.professorDecision === 'Pending Professor Interview' || s.professorDecision === 'Pending Professor Interview / Review' || !s.professorDecision).length;
-            const acceptedInterviews = mySubmissions.filter((s) => s.professorDecision === 'Interview').length;
-            const avgScore = mySubmissions.length > 0 ? Math.round(mySubmissions.reduce((acc, curr) => acc + curr.overallScore, 0) / mySubmissions.length) : 0;
+            const pendingInterviews = mySubmissions.filter((s) => s.professorDecision !== 'Interview' && s.professorDecision !== 'Reject').length;
+            const acceptedInterviews = myInterviews.length;
+            const scoredSubmissions = mySubmissions.filter(canSeeScore);
+            const avgScore = scoredSubmissions.length > 0 ? `${Math.round(scoredSubmissions.reduce((acc, curr) => acc + curr.overallScore, 0) / scoredSubmissions.length)}%` : '—';
 
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -693,7 +1068,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                   </div>
                   <div>
                     <span className="text-xs font-semibold text-slate-500 block">Avg Screening Score</span>
-                    <span className="text-2xl font-extrabold text-blue-600">{avgScore}%</span>
+                    <span className="text-2xl font-extrabold text-blue-600" title={scoredSubmissions.length === 0 ? 'Your professors have not released scores yet' : undefined}>{avgScore}</span>
                   </div>
                 </div>
               </div>
@@ -724,7 +1099,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               <Video className="w-4 h-4" />
               <span>Interviews</span>
               {(() => {
-                const count = submissions.filter((s) => s.applicantEmail.toLowerCase() === lookupEmail.toLowerCase() && (s.professorDecision === 'Interview' || s.meetingLink || s.interviewDate)).length;
+                const count = myInterviews.length;
                 return count > 0 ? (
                   <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${dashboardSection === 'interviews' ? 'bg-white text-emerald-700' : 'bg-emerald-600 text-white'}`}>
                     {count}
@@ -754,8 +1129,6 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               </div>
 
               {(() => {
-                const myInterviews = submissions.filter((s) => s.applicantEmail.toLowerCase() === lookupEmail.toLowerCase() && (s.professorDecision === 'Interview' || s.meetingLink || s.interviewDate));
-                
                 if (myInterviews.length === 0) {
                   return (
                     <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-4 shadow-sm">
@@ -782,8 +1155,8 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                   <div className="grid grid-cols-1 gap-6">
                     {myInterviews.map((sub) => {
                       const assessment = assessments.find((a) => a.id === sub.assessmentId);
-                      const meetingLinkUrl = sub.meetingLink || 'https://meet.google.com/phd-faculty-interview';
-                      
+                      const meetingLinkUrl = sub.meetingLink || '';
+
                       return (
                         <div key={sub.id} className="bg-white rounded-2xl border-2 border-emerald-400 shadow-lg overflow-hidden transition-all hover:shadow-xl">
                           <div className="bg-gradient-to-r from-emerald-800 to-emerald-950 p-5 text-white flex items-center justify-between flex-wrap gap-3">
@@ -814,7 +1187,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                                   Confirmed Meeting Date
                                 </span>
                                 <span className="text-sm font-extrabold text-slate-900 block">
-                                  {sub.interviewDate ? new Date(sub.interviewDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending Assignment'}
+                                  {formatLocalDate(sub.interviewDate)}
                                 </span>
                               </div>
 
@@ -834,21 +1207,10 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                                   Video Conference Room
                                 </span>
                                 <span className="text-xs font-mono font-bold text-emerald-800 truncate block">
-                                  {meetingLinkUrl}
+                                  {meetingLinkUrl || 'Link pending — your professor will add it'}
                                 </span>
                               </div>
                             </div>
-
-                            {sub.professorNotes && (
-                              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1.5">
-                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                                  Message from Faculty Committee:
-                                </span>
-                                <p className="text-xs text-slate-700 font-medium leading-relaxed italic">
-                                  "{sub.professorNotes}"
-                                </p>
-                              </div>
-                            )}
 
                             {/* Candidate RSVP / Acceptance Section */}
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -903,24 +1265,28 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                               </span>
                               <div className="flex items-center space-x-3 w-full sm:w-auto">
                                 <button
-                                  onClick={() => {
-                                    setCompletedSubmission(sub);
-                                    setStep('completed');
-                                  }}
+                                  onClick={() => openSubmissionStatus(sub)}
                                   className="flex-1 sm:flex-initial px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors border border-slate-300 flex items-center justify-center space-x-1.5"
                                 >
                                   <FileText className="w-3.5 h-3.5" />
                                   <span>Screening Report</span>
                                 </button>
-                                <a
-                                  href={meetingLinkUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex-1 sm:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
-                                >
-                                  <Video className="w-4 h-4" />
-                                  <span>Join Video Meeting 🎥</span>
-                                </a>
+                                {meetingLinkUrl ? (
+                                  <a
+                                    href={meetingLinkUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
+                                  >
+                                    <Video className="w-4 h-4" />
+                                    <span>Join Video Meeting 🎥</span>
+                                  </a>
+                                ) : (
+                                  <span className="flex-1 sm:flex-initial px-5 py-2.5 bg-slate-200 text-slate-500 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 cursor-not-allowed">
+                                    <Video className="w-4 h-4" />
+                                    <span>Meeting link pending</span>
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -937,7 +1303,6 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
             <>
               {/* My Applications & Synchronized Interview Status */}
           {(() => {
-            const mySubmissions = submissions.filter((s) => s.applicantEmail.toLowerCase() === lookupEmail.toLowerCase());
             if (mySubmissions.length > 0) {
               return (
                 <div className="space-y-4">
@@ -955,7 +1320,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                     {mySubmissions.map((sub) => {
                       const isAccepted = sub.professorDecision === 'Interview';
                       const isRejected = sub.professorDecision === 'Reject';
-                      const isPending = sub.professorDecision === 'Pending' || sub.professorDecision === 'Pending Professor Interview' || sub.professorDecision === 'Pending Professor Interview / Review' || sub.professorDecision === 'Hold for Review' || !sub.professorDecision;
+                      const isPending = !isAccepted && !isRejected;
                       const assessment = assessments.find((a) => a.id === sub.assessmentId);
 
                       return (
@@ -982,13 +1347,8 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                                   <Clock className="w-4 h-4 mr-1" /> ⏳ Status: Pending Faculty Review
                                 </span>
                               )}
-                              {!isAccepted && !isRejected && !isPending && (
-                                <span className="inline-flex items-center space-x-1 bg-slate-200 text-slate-800 px-3 py-1 rounded-full text-xs font-bold">
-                                  {sub.professorDecision || 'Pending'}
-                                </span>
-                              )}
 
-                              {!isPending && (
+                              {canSeeScore(sub) && (
                                 <>
                                   <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded border border-slate-200">
                                     Score: <strong className="text-slate-900 font-bold">{sub.overallScore}%</strong>
@@ -1004,11 +1364,11 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                             </div>
 
                             <h3 className="text-lg font-bold text-slate-900 tracking-tight mt-1">
-                              {assessment?.title || 'PhD Technical Screening Assessment'}
+                              {assessment?.title || 'Screening Assessment (no longer available)'}
                             </h3>
 
                             <p className="text-xs text-slate-600">
-                              <strong>Research Group:</strong> {assessment?.researchGroup || 'Autonomous Systems Lab'} • <strong>University:</strong> {sub.university} • <strong>Degree:</strong> {sub.degreeProgram}
+                              <strong>Research Group:</strong> {assessment?.researchGroup || '—'} • <strong>University:</strong> {sub.university} • <strong>Degree:</strong> {sub.degreeProgram}
                             </p>
 
                             {isAccepted && (
@@ -1016,7 +1376,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                                   <div className="flex items-center space-x-2">
                                     <Calendar className="w-4 h-4 text-emerald-700 shrink-0" />
-                                    <span><strong>Congratulations! Status: Accepted.</strong> The faculty committee has reviewed your AI screening results and invited you to a formal professor interview. {sub.interviewDate ? `Your interview meeting has been scheduled by the professor for ${new Date(sub.interviewDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} at ${sub.interviewTime || '10:00 AM EST'}.` : 'The professor will assign your meeting date and time shortly.'}</span>
+                                    <span><strong>Congratulations! Status: Accepted.</strong> The faculty committee has reviewed your AI screening results and invited you to a formal professor interview. {sub.interviewDate ? `Your interview meeting has been scheduled by the professor for ${formatLocalDate(sub.interviewDate)} at ${sub.interviewTime || 'a time to be confirmed'}.` : 'The professor will assign your meeting date and time shortly.'}</span>
                                   </div>
                                   <button
                                     onClick={() => setDashboardSection('interviews')}
@@ -1074,9 +1434,9 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                             {isRejected && (
                               <div className="bg-rose-50 p-3 rounded-lg border border-rose-200 text-xs text-rose-900 font-medium flex items-center justify-between flex-wrap gap-2">
                                 <span>The professor has completed their review for this research lab position and decided not to proceed with an interview at this time.</span>
-                                {onRemoveSubmission && (
+                                {onUpdateSubmission && (
                                   <button
-                                    onClick={() => onRemoveSubmission(sub.id)}
+                                    onClick={() => handleHideSubmission(sub)}
                                     className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-sm shrink-0"
                                     title="Remove this rejected application from your dashboard"
                                   >
@@ -1090,10 +1450,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
 
                           <div className="shrink-0 w-full md:w-auto flex flex-col sm:flex-row gap-2">
                             <button
-                              onClick={() => {
-                                setCompletedSubmission(sub);
-                                setStep('completed');
-                              }}
+                              onClick={() => openSubmissionStatus(sub)}
                               className={`w-full md:w-auto px-5 py-2.5 rounded-lg text-xs font-bold transition-colors border flex items-center justify-center space-x-1.5 shadow-sm ${
                                 isAccepted
                                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
@@ -1124,12 +1481,11 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 Your Assigned Screening Assessments
               </h2>
               <span className="text-xs font-semibold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full border border-indigo-200">
-                {invitations.filter((i) => i.applicantEmail.toLowerCase() === lookupEmail.toLowerCase()).length} Directed Invitation(s)
+                {myInvites.length} Directed Invitation(s)
               </span>
             </div>
 
             {(() => {
-              const myInvites = invitations.filter((i) => i.applicantEmail.toLowerCase() === lookupEmail.toLowerCase());
               if (myInvites.length === 0) {
                 return (
                   <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-4 shadow-sm">
@@ -1148,7 +1504,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                         className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-md text-xs font-semibold transition-colors flex items-center space-x-1.5"
                       >
                         <User className="w-3.5 h-3.5" />
-                        <span>Try Another Account (e.g. Alex Chen)</span>
+                        <span>Switch Account</span>
                       </button>
                       {onAssignDemoTest && (
                         <button
@@ -1167,15 +1523,18 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               return (
                 <div className="grid grid-cols-1 gap-4">
                   {myInvites.map((inv) => {
-                    const assessment = assessments.find((a) => a.id === inv.assessmentId) || assessments[0];
-                    const isDone = inv.status === 'completed';
-                    const isProg = inv.status === 'in-progress';
+                    const assessment = getAssessment(inv.assessmentId);
+                    const submission = findSubmissionForInvite(inv);
+                    const isDone = inv.status === 'completed' || inv.status === 'reviewed' || Boolean(submission);
+                    const isProg = !isDone && inv.status === 'in-progress';
+                    const blocker = isDone ? null : getStartBlocker(inv);
+                    const assigningProfessor = professors.find((p) => p.id === inv.professorId);
 
                     return (
                       <div
                         key={inv.id}
                         className={`bg-white rounded-xl border p-6 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm ${
-                          isDone ? 'border-slate-200 bg-slate-50/50' : isProg ? 'border-amber-300 bg-amber-50/30' : 'border-indigo-200 hover:border-indigo-400 hover:shadow-md'
+                          isDone ? 'border-slate-200 bg-slate-50/50' : isProg ? 'border-amber-300 bg-amber-50/30' : blocker ? 'border-slate-200' : 'border-indigo-200 hover:border-indigo-400 hover:shadow-md'
                         }`}
                       >
                         <div className="space-y-2 flex-1">
@@ -1188,28 +1547,36 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                               <span className="inline-flex items-center space-x-1 bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase animate-pulse">
                                 <Clock className="w-3.5 h-3.5 text-amber-600 mr-1" /> In Progress
                               </span>
+                            ) : blocker ? (
+                              <span className="inline-flex items-center space-x-1 bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase">
+                                <Lock className="w-3.5 h-3.5 mr-1" /> Unavailable
+                              </span>
                             ) : (
                               <span className="inline-flex items-center space-x-1 bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase">
                                 <Sparkles className="w-3.5 h-3.5 text-indigo-600 mr-1" /> Ready to Take
                               </span>
                             )}
                             <span className="text-xs font-semibold text-slate-500">
-                              Assigned by <strong className="text-slate-800">Faculty Advisor</strong>
+                              Assigned by <strong className="text-slate-800">{assigningProfessor?.name || 'Faculty Advisor'}</strong>
                             </span>
                             {inv.deadline && (
-                              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 flex items-center">
-                                <Calendar className="w-3 h-3 mr-1 text-slate-500" /> Deadline: {inv.deadline}
+                              <span className={`text-xs px-2 py-0.5 rounded border flex items-center ${
+                                !isDone && isPastDeadline(inv.deadline) ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                              }`}>
+                                <Calendar className="w-3 h-3 mr-1 text-slate-500" /> Deadline: {formatLocalDate(inv.deadline)}
                               </span>
                             )}
                           </div>
 
                           <h3 className="text-lg font-bold text-slate-900 tracking-tight">
-                            {assessment?.title || 'PhD Technical Screening Exam'}
+                            {assessment?.title || 'Assessment no longer available'}
                           </h3>
                           
-                          <p className="text-xs text-slate-600">
-                            <strong>Research Lab:</strong> {assessment?.researchGroup || 'Autonomous Systems Lab'} • <strong>Semester:</strong> {assessment?.semester || 'Fall 2026'} • <strong>Time Limit:</strong> {assessment?.timeLimitMinutes || 60} Minutes
-                          </p>
+                          {assessment && (
+                            <p className="text-xs text-slate-600">
+                              <strong>Research Lab:</strong> {assessment.researchGroup} • <strong>Semester:</strong> {assessment.semester} • <strong>Time Limit:</strong> {assessment.timeLimitMinutes} Minutes
+                            </p>
+                          )}
 
                           {inv.notes && (
                             <div className="bg-indigo-50/70 p-2.5 rounded-md border border-indigo-100 text-xs text-indigo-900 flex items-start space-x-2 mt-2">
@@ -1217,68 +1584,39 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                               <span><strong>Professor's Instructions:</strong> "{inv.notes}"</span>
                             </div>
                           )}
+
+                          {blocker && (
+                            <p className="text-xs text-slate-600 font-semibold flex items-center">
+                              <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-500 shrink-0" />
+                              {blocker}
+                            </p>
+                          )}
                         </div>
 
                         <div className="shrink-0 w-full md:w-auto flex flex-col sm:flex-row gap-2">
                           {isDone ? (
-                            (() => {
-                              const matchingSub = submissions.find(s => s.assessmentId === assessment?.id && s.applicantEmail.toLowerCase() === lookupEmail.toLowerCase()) || submissions.find(s => s.assessmentId === assessment?.id);
-                              const isAcc = matchingSub?.professorDecision === 'Interview';
-                              const isRej = matchingSub?.professorDecision === 'Reject';
-                              return (
-                                <button
-                                  onClick={() => {
-                                    if (matchingSub) {
-                                      setCompletedSubmission(matchingSub);
-                                    } else {
-                                      const fallbackSub: ApplicantSubmission = {
-                                        id: `sub-${inv.id}`,
-                                        assessmentId: assessment?.id || '',
-                                        applicantName: inv.applicantName || 'Applicant',
-                                        applicantEmail: inv.applicantEmail || lookupEmail,
-                                        university: 'Stanford University',
-                                        degreeProgram: 'Ph.D. in Computer Science',
-                                        status: 'completed',
-                                        totalTimeSpentSeconds: 3600,
-                                        responses: {},
-                                        overallScore: 88,
-                                        topicBreakdown: {} as any,
-                                        timeAnalysis: {},
-                                        confidenceScore: 90,
-                                        interviewRecommendation: 'Strongly Recommend Interview',
-                                        recommendationExplanation: 'Solid technical performance.',
-                                        aiSummary: 'Demonstrates strong research rigor.',
-                                        integrityReport: { tabSwitchCount: 0, copyPasteAttempts: 0, aiGeneratedProbability: 10, integrityFlagged: false, notes: [] },
-                                        professorNotes: '',
-                                        professorDecision: 'Pending'
-                                      };
-                                      setCompletedSubmission(fallbackSub);
-                                    }
-                                    setSelectedAssessmentId(assessment?.id || '');
-                                    setActiveInvitationId(inv.id);
-                                    setStep('completed');
-                                  }}
-                                  className={`w-full md:w-auto px-5 py-2.5 rounded-lg text-xs font-bold transition-colors border flex items-center justify-center space-x-1.5 shadow-sm ${
-                                    isAcc
-                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
-                                      : isRej
-                                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-300'
-                                      : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
-                                  }`}
-                                >
-                                  <Calendar className={`w-4 h-4 ${isAcc ? 'text-white' : isRej ? 'text-rose-600' : 'text-indigo-600'}`} />
-                                  <span>{isAcc ? 'View Accepted Status & Meeting 🎉' : 'View Professor Review Status'}</span>
-                                </button>
-                              );
-                            })()
+                            submission && !submission.hiddenByApplicant ? (
+                              <button
+                                onClick={() => openSubmissionStatus(submission)}
+                                className={`w-full md:w-auto px-5 py-2.5 rounded-lg text-xs font-bold transition-colors border flex items-center justify-center space-x-1.5 shadow-sm ${
+                                  submission.professorDecision === 'Interview'
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                                    : submission.professorDecision === 'Reject'
+                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-300'
+                                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
+                                }`}
+                              >
+                                <Calendar className="w-4 h-4" />
+                                <span>{submission.professorDecision === 'Interview' ? 'View Accepted Status & Meeting 🎉' : 'View Professor Review Status'}</span>
+                              </button>
+                            ) : (
+                              <span className="text-xs font-semibold text-slate-500">Submitted</span>
+                            )
                           ) : (
                             <button
-                              onClick={() => {
-                                setSelectedAssessmentId(assessment?.id || '');
-                                setActiveInvitationId(inv.id);
-                                setStep('invite');
-                              }}
-                              className="w-full md:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm shadow-indigo-200 transition-colors flex items-center justify-center space-x-2"
+                              onClick={() => handleOpenInvitation(inv)}
+                              disabled={Boolean(blocker)}
+                              className="w-full md:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold shadow-sm shadow-indigo-200 transition-colors flex items-center justify-center space-x-2"
                             >
                               <span>{isProg ? 'Resume Directed Test' : 'Start Directed Test'}</span>
                               <ArrowRight className="w-4 h-4" />
@@ -1299,7 +1637,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest block">Admissions Roadmap</span>
               <h3 className="text-xl font-bold tracking-tight">Understanding Your Candidate Journey</h3>
               <p className="text-xs text-slate-400">
-                How ScholarScreen AI bridges applicants with top-tier university faculty labs.
+                How Sifted bridges applicants with top-tier university faculty labs.
               </p>
             </div>
 
@@ -1351,7 +1689,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
       )}
 
       {/* STEP 1: INVITATION & VERIFICATION */}
-      {step === 'invite' && (
+      {step === 'invite' && activeAssessment && (
         <div className="bg-white p-8 md:p-10 rounded-lg border border-slate-200 shadow-sm space-y-8 animate-fade-in relative">
           <button
             onClick={() => {
@@ -1371,11 +1709,14 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               <span>Secure University Admissions Assessment</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
-              {activeAssessment?.title || 'Fall 2026 PhD AI Research Fellowship Screening'}
+              {activeAssessment.title}
             </h1>
             <p className="text-sm text-slate-600">
-              You have been invited by <span className="font-bold text-slate-900">{activeAssessment?.researchGroup || 'Autonomous Systems Lab'}</span> to complete this initial technical screening exam.
+              You have been invited by <span className="font-bold text-slate-900">{activeAssessment.researchGroup}</span> to complete this initial technical screening exam.
             </p>
+            {activeAssessment.description && (
+              <p className="text-xs text-slate-500 leading-relaxed">{activeAssessment.description}</p>
+            )}
           </div>
 
           {/* Instructions Box */}
@@ -1386,19 +1727,37 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
             <ul className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-700">
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-slate-900">Time Limit:</strong> You have {activeAssessment?.timeLimitMinutes || 60} minutes once you click Start.</span>
+                <span>
+                  <strong className="text-slate-900">Time Limit:</strong> You have {activeAssessment.timeLimitMinutes} minutes once you click Start
+                  {graceSeconds > 0 ? ', plus a 5-minute grace period' : ''}. The timer keeps running if you leave, and the test is submitted automatically when time runs out.
+                </span>
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-slate-900">Adaptive Difficulty:</strong> Questions dynamically adjust to your accuracy.</span>
+                <span>
+                  <strong className="text-slate-900">Questions:</strong> {activeAssessment.questionIds.length} question(s)
+                  {activeAssessment.isAdaptive ? ', ordered from foundational to research-level difficulty' : ''}
+                  {integrityOptions.randomizeQuestionOrder ? '; order is randomized for each candidate' : ''}.
+                </span>
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-slate-900">Code Execution:</strong> Programming questions include automated test case verification.</span>
+                <span><strong className="text-slate-900">Programming:</strong> Code is reviewed against the professor's rubric and test cases after you submit; it isn't executed in the browser.</span>
               </li>
               <li className="flex items-start space-x-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span><strong className="text-slate-900">Anti-Cheating Integrity:</strong> Tab switching and copy/pasting are monitored by AI.</span>
+                <span>
+                  <strong className="text-slate-900">Anti-Cheating Integrity:</strong>{' '}
+                  {[
+                    integrityOptions.fullScreenMode && 'fullscreen is required',
+                    integrityOptions.tabSwitchDetection && 'tab switching is logged',
+                    integrityOptions.copyPasteDetection && 'copy/paste is blocked and logged',
+                    integrityOptions.aiAnswerDetection && 'answers are checked for AI-generated text',
+                  ]
+                    .filter(Boolean)
+                    .join('; ') || 'no monitoring is enabled for this assessment'}
+                  .
+                </span>
               </li>
             </ul>
           </div>
@@ -1412,19 +1771,20 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 <input
                   type="text"
                   value={applicantName}
-                  onChange={(e) => setApplicantName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  readOnly
+                  title="From your signed-in account"
+                  className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-medium text-slate-600 cursor-not-allowed"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">University Email Address *</label>
+                <label className="text-xs font-semibold text-slate-700">University Email Address</label>
                 <input
                   type="email"
-                  required
                   value={applicantEmail}
-                  onChange={(e) => setApplicantEmail(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  readOnly
+                  title="Your submission is linked to the email of your signed-in account"
+                  className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-medium text-slate-600 cursor-not-allowed"
                 />
               </div>
 
@@ -1441,9 +1801,10 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Current University / Institution</label>
+                <label className="text-xs font-semibold text-slate-700">Current University / Institution *</label>
                 <input
                   type="text"
+                  required
                   value={university}
                   onChange={(e) => setUniversity(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1451,11 +1812,24 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Degree Program & Major</label>
+                <label className="text-xs font-semibold text-slate-700">Degree Program & Major *</label>
                 <input
                   type="text"
+                  required
                   value={degreeProgram}
                   onChange={(e) => setDegreeProgram(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">Undergraduate GPA (optional)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={gpa}
+                  onChange={(e) => setGpa(e.target.value)}
+                  placeholder="e.g. 3.7"
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -1545,18 +1919,25 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
-              <span className="text-slate-400 flex items-center space-x-1.5">
+            {integrityOptions.fullScreenMode ? (
+              <div className="flex items-center pt-3 border-t border-slate-800 text-xs text-slate-400 space-x-1.5">
                 <AlertOctagon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Need to practice without lockdown restrictions?</span>
-              </span>
-              <button
-                onClick={() => handleStartTest(false)}
-                className="text-slate-300 hover:text-white underline font-semibold transition-colors"
-              >
-                Start in Practice / Unlocked Mode
-              </button>
-            </div>
+                <span>Your professor requires fullscreen lockdown for this assessment.</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
+                <span className="text-slate-400 flex items-center space-x-1.5">
+                  <AlertOctagon className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Prefer not to use fullscreen? This still counts as your graded attempt.</span>
+                </span>
+                <button
+                  onClick={() => handleStartTest(false)}
+                  className="text-slate-300 hover:text-white underline font-semibold transition-colors"
+                >
+                  Start Without Fullscreen Lockdown
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1576,7 +1957,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 {isLockdownActive ? '🔒 BLUEBOOK SECURE LOCKDOWN ACTIVE' : '🛡️ PROCTORING EYE MONITORING ON'}
               </span>
               <span className="text-slate-400 hidden lg:inline">
-                Session: <span className="text-slate-200">#SAT-{activeAssessment?.id?.slice(0, 8).toUpperCase() || '894A291E'}</span> • Anti-Cheat AI: <span className="text-emerald-400 font-semibold">Online</span>
+                Session: <span className="text-slate-200">#{activeAssessment?.id?.slice(0, 12).toUpperCase()}</span>
               </span>
             </div>
             <div className="flex items-center space-x-3">
@@ -1598,12 +1979,14 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />}
                 <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
               </button>
-              {isLockdownActive && (
+              {isLockdownActive && !integrityOptions.fullScreenMode && (
                 <button
                   onClick={() => {
                     if (window.confirm('WARNING: Exiting Lockdown Mode will terminate your secure proctoring session and log an immediate integrity violation. Do you wish to proceed?')) {
                       setIsLockdownActive(false);
-                      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+                      setTabSwitches((prev) => prev + 1);
+                      logIntegrityEvent('Candidate exited lockdown mode manually.');
+                      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
                     }
                   }}
                   className="bg-rose-950/80 hover:bg-rose-900 text-rose-300 px-2.5 py-1 rounded border border-rose-800 text-[11px] font-sans font-bold transition-colors"
@@ -1613,6 +1996,30 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               )}
             </div>
           </div>
+
+          {isLockdownActive && !isFullscreen && (
+            <div className="bg-amber-500 text-slate-950 p-3.5 rounded-lg shadow-xl flex items-center justify-between text-xs font-bold border border-amber-300">
+              <div className="flex items-center space-x-2.5">
+                <Monitor className="w-5 h-5 shrink-0" />
+                <span>This assessment runs in fullscreen lockdown. Please return to fullscreen to continue.</span>
+              </div>
+              <button
+                onClick={toggleFullscreen}
+                className="bg-slate-950 text-amber-300 px-3 py-1.5 rounded font-bold hover:bg-slate-800 transition-colors shrink-0"
+              >
+                Enter Fullscreen
+              </button>
+            </div>
+          )}
+
+          {isInGracePeriod && (
+            <div className="bg-amber-600 text-white p-3.5 rounded-lg shadow-xl flex items-center justify-between text-xs font-bold border border-amber-400">
+              <div className="flex items-center space-x-2.5">
+                <Clock className="w-5 h-5 shrink-0" />
+                <span>Time is up — you're in the late-submission grace period. Your answers will be submitted automatically in {formatTime(graceLeftSeconds)}.</span>
+              </div>
+            </div>
+          )}
 
           {/* Floating Security Violation Alerts */}
           {showCheatWarning && (
@@ -1650,7 +2057,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
             <div className="flex items-center space-x-3 bg-slate-800/80 px-4 py-1.5 rounded-full border border-slate-700">
               <Clock className={`w-4 h-4 ${timeLeftSeconds < 300 && !isTimerHidden ? 'text-rose-400 animate-pulse' : 'text-slate-300'}`} />
               <span className={`font-mono font-bold text-xs ${timeLeftSeconds < 300 && !isTimerHidden ? 'text-rose-400 animate-pulse' : 'text-slate-100'}`}>
-                {isTimerHidden ? 'Timer Hidden' : formatTime(timeLeftSeconds)}
+                {isTimerHidden ? 'Timer Hidden' : isInGracePeriod ? `Grace ${formatTime(graceLeftSeconds)}` : formatTime(timeLeftSeconds)}
               </span>
               <button
                 onClick={() => setIsTimerHidden(!isTimerHidden)}
@@ -1809,7 +2216,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                     <span>Return to Questions</span>
                   </button>
                   <button
-                    onClick={handleSubmitAssessment}
+                    onClick={() => handleSubmitAssessment()}
                     disabled={isGrading}
                     className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-2"
                   >
@@ -1992,7 +2399,57 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
 
               {/* Question Prompt */}
               <div className="space-y-3">
-                <p className="text-sm text-slate-800 font-normal leading-relaxed">{currentQuestion.prompt}</p>
+                <p className="text-sm text-slate-800 font-normal leading-relaxed whitespace-pre-wrap">{currentQuestion.prompt}</p>
+
+                {/* Research materials referenced by the prompt */}
+                {currentQuestion.researchContext && (
+                  <div className="bg-slate-50 p-3 rounded-md border border-slate-200 text-xs text-slate-700">
+                    <span className="font-bold text-slate-900">Context: </span>
+                    {currentQuestion.researchContext}
+                  </div>
+                )}
+                {currentQuestion.paperExcerpt && (
+                  <blockquote className="bg-white p-3 rounded-md border-l-4 border-indigo-400 text-xs text-slate-700 italic whitespace-pre-wrap">
+                    {currentQuestion.paperExcerpt}
+                  </blockquote>
+                )}
+                {currentQuestion.chartData && currentQuestion.chartData.length > 0 && currentQuestion.chartType !== 'none' && (
+                  <div className="h-64 w-full bg-white rounded-md border border-slate-200 p-3">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {currentQuestion.chartType === 'bar' ? (
+                        <BarChart data={currentQuestion.chartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="x" tick={{ fill: '#475569', fontSize: 11 }} />
+                          <YAxis tick={{ fill: '#475569', fontSize: 11 }} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="y" name="Series 1" fill="#6366f1" />
+                          {currentQuestion.chartData.some((d) => d.y2 !== undefined) && <Bar dataKey="y2" name="Series 2" fill="#f59e0b" />}
+                        </BarChart>
+                      ) : currentQuestion.chartType === 'scatter' ? (
+                        <ScatterChart>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="x" tick={{ fill: '#475569', fontSize: 11 }} />
+                          <YAxis dataKey="y" tick={{ fill: '#475569', fontSize: 11 }} />
+                          <Tooltip />
+                          <Scatter data={currentQuestion.chartData} fill="#6366f1" />
+                        </ScatterChart>
+                      ) : (
+                        <LineChart data={currentQuestion.chartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="x" tick={{ fill: '#475569', fontSize: 11 }} />
+                          <YAxis tick={{ fill: '#475569', fontSize: 11 }} />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="y" name="Series 1" stroke="#6366f1" strokeWidth={2} />
+                          {currentQuestion.chartData.some((d) => d.y2 !== undefined) && (
+                            <Line type="monotone" dataKey="y2" name="Series 2" stroke="#f59e0b" strokeWidth={2} />
+                          )}
+                        </LineChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+                )}
 
                 {/* If Math LaTeX */}
                 {currentQuestion.latexFormula && (
@@ -2006,7 +2463,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
               {/* If Multiple Choice (With SAT Option Eliminator / Strikethrough) */}
               {currentQuestion.type === 'multiple-choice' && currentQuestion.options && (
                 <div className="space-y-3 pt-2">
-                  {currentQuestion.options.map((opt, i) => {
+                  {(optionOrders[currentQuestion.id] || currentQuestion.options).map((opt, i) => {
                     const isSelected = responses[currentQuestion.id]?.answer === opt;
                     const isEliminated = (eliminatedOptions[currentQuestion.id] || []).includes(opt);
 
@@ -2089,25 +2546,26 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                     </span>
                     <button
                       onClick={handleRunTestCases}
-                      disabled={runningCode}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors"
                     >
-                      <Terminal className={`w-3.5 h-3.5 ${runningCode ? 'animate-spin' : ''}`} />
-                      <span>{runningCode ? 'Executing Test Cases...' : 'Run Test Cases'}</span>
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>View Sample Test Cases</span>
                     </button>
                   </div>
 
                   <textarea
                     rows={10}
-                    value={responses[currentQuestion.id]?.answer || currentQuestion.codeTemplate || ''}
+                    spellCheck={false}
+                    value={responses[currentQuestion.id]?.answer ?? currentQuestion.codeTemplate ?? ''}
                     onChange={(e) => handleAnswerChange(e.target.value)}
+                    onKeyDown={handleCodeKeyDown}
                     className="w-full p-4 bg-[#0F172A] text-emerald-400 font-mono rounded-md border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed shadow-sm"
                   />
 
                   {/* Test Case Output */}
                   {testCaseResults[currentQuestion.id] && (
-                    <div className="bg-emerald-50/80 border border-emerald-300 p-4 rounded-md text-emerald-900 text-xs font-mono animate-fade-in shadow-sm">
-                      <span className="font-bold uppercase tracking-wider block mb-1">Execution Output:</span>
+                    <div className="bg-emerald-50/80 border border-emerald-300 p-4 rounded-md text-emerald-900 text-xs font-mono animate-fade-in shadow-sm whitespace-pre-wrap">
+                      <span className="font-bold uppercase tracking-wider block mb-1">Test Cases:</span>
                       {testCaseResults[currentQuestion.id]}
                     </div>
                   )}
@@ -2169,7 +2627,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 </button>
               ) : (
                 <button
-                  onClick={handleSubmitAssessment}
+                  onClick={() => handleSubmitAssessment()}
                   disabled={isGrading}
                   className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-1.5"
                 >
@@ -2278,6 +2736,9 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
         const isAccepted = decision === 'Interview';
         const isDenied = decision === 'Reject';
         const isPending = !isAccepted && !isDenied;
+        const subAssessment = getAssessment(completedSubmission.assessmentId);
+        const groupName = subAssessment?.researchGroup || 'the Faculty Committee';
+        const showScore = canSeeScore(completedSubmission);
 
         return (
           <div className="bg-white p-8 md:p-10 rounded-2xl border border-slate-200 shadow-xl space-y-8 animate-fade-in max-w-3xl mx-auto text-left">
@@ -2303,7 +2764,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 }`}>
                   {isAccepted && <span>🎉 Status: Accepted — Interview Requested</span>}
                   {isDenied && <span>❌ Status: Review Completed — Denied</span>}
-                  {isPending && <span>⏳ Status: Pending Faculty Review (Default)</span>}
+                  {isPending && <span>⏳ Status: Pending Faculty Review</span>}
                 </span>
 
                 <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 mt-1">
@@ -2313,35 +2774,24 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
                   {isAccepted && (
                     <span>
-                      Great news, <strong>{completedSubmission.applicantName}</strong>! The faculty committee for <strong>{activeAssessment?.researchGroup || 'Autonomous Systems Lab'}</strong> has reviewed your screening credentials and selected you for a formal 1-on-1 interview.
+                      Great news, <strong>{completedSubmission.applicantName}</strong>! The faculty committee for <strong>{groupName}</strong> has reviewed your screening credentials and selected you for a formal 1-on-1 interview.
                     </span>
                   )}
                   {isDenied && (
                     <span>
-                      Thank you for applying, <strong>{completedSubmission.applicantName}</strong>. After careful review of your screening assessment by <strong>{activeAssessment?.researchGroup || 'the Faculty Committee'}</strong>, the professor has decided not to proceed with an interview for this lab position at this time. We wish you the best in your graduate research career.
+                      Thank you for applying, <strong>{completedSubmission.applicantName}</strong>. After careful review of your screening assessment by <strong>{groupName}</strong>, the professor has decided not to proceed with an interview for this lab position at this time. We wish you the best in your graduate research career.
                     </span>
                   )}
                   {isPending && (
                     <span>
-                      Thank you for completing your screening assessment, <strong>{completedSubmission.applicantName}</strong>. Your candidate file has been securely routed to <strong>{activeAssessment?.researchGroup || 'the Faculty Committee'}</strong>. The professor review status defaults to <strong>Pending</strong> while derivations and code are evaluated.
+                      Thank you for completing your screening assessment, <strong>{completedSubmission.applicantName}</strong>. Your candidate file has been securely routed to <strong>{groupName}</strong>. You'll see the professor's decision here once they have reviewed your answers.
                     </span>
                   )}
                 </p>
               </div>
             </div>
 
-            {/* Success Toast for Scheduling */}
-            {scheduleSuccessMsg && (
-              <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-md flex items-center justify-between text-sm font-bold animate-fade-in">
-                <div className="flex items-center space-x-2">
-                  <Sparkles className="w-5 h-5 animate-spin" />
-                  <span>{scheduleSuccessMsg}</span>
-                </div>
-                <button onClick={() => setScheduleSuccessMsg(null)} className="text-white hover:text-emerald-200 font-bold">✕</button>
-              </div>
-            )}
-
-            {/* Step 2: Faculty Meeting Schedule (Assigned by Professor) (Only visible if Accepted!) */}
+            {/* Faculty Meeting Schedule (Assigned by Professor) (Only visible if Accepted!) */}
             {isAccepted && (
               <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-xl space-y-6">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-4 flex-wrap gap-2">
@@ -2371,14 +2821,14 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                       <div className="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
                         <span className="text-xs text-slate-400 font-medium block">Confirmed Date</span>
                         <span className="text-sm sm:text-base font-bold text-white mt-0.5 block">
-                          {new Date(completedSubmission.interviewDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                          {formatLocalDate(completedSubmission.interviewDate)}
                         </span>
                       </div>
 
                       <div className="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
                         <span className="text-xs text-slate-400 font-medium block">Confirmed Time Slot</span>
                         <span className="text-sm sm:text-base font-bold text-emerald-400 mt-0.5 block">
-                          {completedSubmission.interviewTime || '10:00 AM EST'}
+                          {completedSubmission.interviewTime || 'To be confirmed'}
                         </span>
                       </div>
 
@@ -2389,23 +2839,25 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                             Meeting Link
                           </span>
                           <span className="text-xs font-mono text-slate-300 truncate block mt-0.5">
-                            {completedSubmission.meetingLink || 'https://meet.google.com/phd-faculty-interview'}
+                            {completedSubmission.meetingLink || 'Link pending'}
                           </span>
                         </div>
-                        <a
-                          href={completedSubmission.meetingLink || 'https://meet.google.com/phd-faculty-interview'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded text-xs transition-colors text-center flex items-center justify-center space-x-1 shadow-sm"
-                        >
-                          <Video className="w-3.5 h-3.5" />
-                          <span>Join Video 🎥</span>
-                        </a>
+                        {completedSubmission.meetingLink && (
+                          <a
+                            href={completedSubmission.meetingLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded text-xs transition-colors text-center flex items-center justify-center space-x-1 shadow-sm"
+                          >
+                            <Video className="w-3.5 h-3.5" />
+                            <span>Join Video 🎥</span>
+                          </a>
+                        )}
                       </div>
                     </div>
 
                     <p className="text-xs text-slate-400 bg-slate-900/50 p-3 rounded-lg border border-slate-800">
-                      💡 A Google Calendar invitation and Google Meet video conference link have been sent to <strong className="text-slate-200">{completedSubmission.applicantEmail}</strong> by the faculty lab. If you need to request a rescheduling, please contact your faculty coordinator directly.
+                      💡 Join the video link 5 minutes before your scheduled start time. If you need to request a rescheduling, please contact your faculty coordinator directly.
                     </p>
                   </div>
                 ) : (
@@ -2413,7 +2865,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                     <Clock className="w-8 h-8 text-amber-400 mx-auto animate-pulse mb-2" />
                     <h4 className="text-base font-bold text-white">Waiting for Professor to Assign Meeting Date</h4>
                     <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-                      Congratulations! Your application status is <strong>Accepted</strong> for an interview. The professor will set your meeting date and time slot shortly. Please check back soon or monitor your email for the calendar invite.
+                      Congratulations! Your application status is <strong>Accepted</strong> for an interview. The professor will set your meeting date and time slot shortly. Please check back soon.
                     </p>
                   </div>
                 )}
@@ -2472,14 +2924,14 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                   Submitted Application Summary
                 </h3>
-                {isPending && (
+                {!showScore && (
                   <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-800 border border-amber-300">
-                    <Clock className="w-3 h-3 mr-1" /> Exam details hidden while decision is pending
+                    <Lock className="w-3 h-3 mr-1" /> Scores not released by your professor
                   </span>
                 )}
               </div>
 
-              {isPending ? (
+              {!showScore ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-2xs">
@@ -2494,61 +2946,49 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
 
                     <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-2xs">
                       <span className="text-[11px] font-semibold text-slate-400 block">Exam Review Status</span>
-                      <span className="text-xs font-bold text-amber-700 mt-0.5 block">⏳ Under Faculty Review</span>
+                      <span className={`text-xs font-bold mt-0.5 block ${isPending ? 'text-amber-700' : 'text-slate-800'}`}>
+                        {isPending ? '⏳ Under Faculty Review' : '✓ Review Completed'}
+                      </span>
                     </div>
                   </div>
 
                   <div className="bg-amber-50/90 p-4 rounded-xl border border-amber-200 text-amber-950 text-xs flex items-start space-x-3 shadow-sm">
-                    <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                    <Lock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                     <div className="space-y-1">
-                      <strong className="font-bold block text-sm">Exam Performance & Score Temporarily Hidden</strong>
+                      <strong className="font-bold block text-sm">Exam Performance & Score Hidden</strong>
                       <p className="leading-relaxed text-slate-700 font-medium">
-                        To preserve academic testing integrity, detailed screening scores, questions correct, questions wrong, and derivation feedback are concealed while your candidate file is pending review by the professor. Once a decision has been finalized, full exam details will become accessible here.
+                        To preserve academic testing integrity, your professor has chosen not to show screening scores, correct and incorrect answers, or grading feedback to candidates for this assessment.
                       </p>
                     </div>
                   </div>
                 </div>
               ) : (
                 (() => {
-                  const responseList = Object.values(completedSubmission.responses || {}) as any[];
-                  const subAssessment = assessments.find(a => a.id === completedSubmission.assessmentId) || activeAssessment;
-                  const subQuestions = (subAssessment?.questionIds || ['q-mc-1', 'q-math-1', 'q-prog-1'])
-                    .map(id => questionBank.find(q => q.id === id))
-                    .filter((q): q is Question => q !== undefined);
-
-                  const itemsToDisplay = responseList.length > 0
-                    ? responseList.map((resp, idx) => {
-                        const q = questionBank.find(qb => qb.id === resp.questionId);
-                        const isCorrect = resp.isCorrect !== undefined ? resp.isCorrect : (resp.aiScore > 0 && resp.aiScore >= (resp.maxScore * 0.7));
-                        return {
-                          id: resp.questionId || `q-${idx}`,
-                          number: idx + 1,
-                          title: q?.title || `Question ${idx + 1} (${resp.questionId})`,
-                          topic: q?.topic || 'General',
-                          difficulty: q?.difficulty || 'Intermediate',
-                          points: resp.maxScore || q?.points || 10,
-                          score: resp.aiScore,
-                          isCorrect,
-                        };
-                      })
-                    : subQuestions.map((q, idx) => {
-                        const resp = completedSubmission.responses?.[q.id];
-                        const isCorrect = resp?.isCorrect !== undefined ? resp.isCorrect : (resp ? resp.aiScore > 0 && resp.aiScore >= (resp.maxScore * 0.7) : false);
-                        return {
-                          id: q.id,
-                          number: idx + 1,
-                          title: q.title,
-                          topic: q.topic,
-                          difficulty: q.difficulty,
-                          points: q.points,
-                          score: resp?.aiScore || 0,
-                          isCorrect,
-                        };
-                      });
+                  const itemsToDisplay = (subAssessment?.questionIds || Object.keys(completedSubmission.responses || {}))
+                    .map((qid, idx) => {
+                      const resp = completedSubmission.responses?.[qid];
+                      if (!resp) return null;
+                      const q = questionBank.find((qb) => qb.id === qid);
+                      const score = getEffectiveScore(resp);
+                      return {
+                        id: qid,
+                        number: idx + 1,
+                        title: q?.title || `Question ${idx + 1}`,
+                        topic: q?.topic || 'General',
+                        difficulty: q?.difficulty || 'Intermediate',
+                        points: resp.maxScore || q?.points || 10,
+                        score,
+                        isFull: score >= resp.maxScore,
+                        isPartial: score > 0 && score < resp.maxScore,
+                      };
+                    })
+                    .filter((item): item is NonNullable<typeof item> => item !== null)
+                    .map((item, idx) => ({ ...item, number: idx + 1 }));
 
                   const totalEvaluated = itemsToDisplay.length;
-                  const correctCount = itemsToDisplay.filter(item => item.isCorrect).length;
-                  const wrongCount = totalEvaluated > 0 ? totalEvaluated - correctCount : 0;
+                  const correctCount = itemsToDisplay.filter((item) => item.isFull).length;
+                  const partialCount = itemsToDisplay.filter((item) => item.isPartial).length;
+                  const wrongCount = totalEvaluated - correctCount - partialCount;
                   const timeSpentSec = completedSubmission.totalTimeSpentSeconds || 0;
                   const timeSpentFormatted = timeSpentSec > 0 ? `${Math.floor(timeSpentSec / 60)}m ${timeSpentSec % 60}s` : 'N/A';
 
@@ -2571,7 +3011,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                         </div>
 
                         <div className="bg-white p-3 rounded-lg border border-emerald-200 shadow-2xs bg-emerald-50/30">
-                          <span className="text-[10px] font-semibold text-emerald-700 block">Questions Correct</span>
+                          <span className="text-[10px] font-semibold text-emerald-700 block">Full Credit</span>
                           <span className="text-xs font-extrabold text-emerald-700 mt-0.5 flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5 inline text-emerald-600 shrink-0" />
                             <span>{correctCount} / {totalEvaluated}</span>
@@ -2579,10 +3019,10 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                         </div>
 
                         <div className="bg-white p-3 rounded-lg border border-rose-200 shadow-2xs bg-rose-50/30">
-                          <span className="text-[10px] font-semibold text-rose-700 block">Questions Wrong</span>
+                          <span className="text-[10px] font-semibold text-rose-700 block">Partial / No Credit</span>
                           <span className="text-xs font-extrabold text-rose-700 mt-0.5 flex items-center gap-1">
                             <X className="w-3.5 h-3.5 inline text-rose-600 shrink-0" />
-                            <span>{wrongCount} / {totalEvaluated}</span>
+                            <span>{partialCount + wrongCount} / {totalEvaluated}</span>
                           </span>
                         </div>
 
@@ -2599,7 +3039,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                             Exam Question Performance Breakdown
                           </h4>
                           <span className="text-[11px] font-semibold text-slate-500">
-                            {correctCount} Correct • {wrongCount} Incorrect
+                            {correctCount} Full • {partialCount} Partial • {wrongCount} No Credit
                           </span>
                         </div>
                         <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
@@ -2607,7 +3047,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                             <div key={item.id} className="p-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
                               <div className="flex items-center space-x-3 min-w-0 flex-1">
                                 <span className={`w-6 h-6 rounded text-xs font-bold flex items-center justify-center shrink-0 ${
-                                  item.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                  item.isFull ? 'bg-emerald-100 text-emerald-800' : item.isPartial ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
                                 }`}>
                                   Q{item.number}
                                 </span>
@@ -2620,18 +3060,24 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                                 <span className="text-xs font-bold text-slate-600">
                                   {item.score} / {item.points} pts
                                 </span>
-                                <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold flex items-center space-x-1 ${
-                                  item.isCorrect ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-rose-100 text-rose-800 border border-rose-300'
+                                <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold flex items-center space-x-1 border ${
+                                  item.isFull
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    : item.isPartial
+                                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                    : 'bg-rose-100 text-rose-800 border-rose-300'
                                 }`}>
-                                  {item.isCorrect ? (
+                                  {item.isFull ? (
                                     <>
                                       <CheckCircle2 className="w-3 h-3" />
-                                      <span>Correct</span>
+                                      <span>Full Credit</span>
                                     </>
+                                  ) : item.isPartial ? (
+                                    <span>Partial Credit</span>
                                   ) : (
                                     <>
                                       <X className="w-3 h-3" />
-                                      <span>Wrong / 0 Pts</span>
+                                      <span>0 Pts</span>
                                     </>
                                   )}
                                 </span>
@@ -2643,6 +3089,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
 
                       <p className="text-xs text-slate-500 italic">
                         * Note: To preserve testing integrity and academic fairness, detailed automated derivation rubrics and step-by-step AI solutions are reserved for faculty committee review only.
+                        {isPending ? ' Scores may still change after professor review.' : ''}
                       </p>
                     </div>
                   );
@@ -2654,9 +3101,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
             <div className="pt-2 flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-slate-200">
               <button
                 onClick={() => {
-                  if (completedSubmission?.professorDecision === 'Interview' || completedSubmission?.meetingLink || completedSubmission?.interviewDate) {
-                    setDashboardSection('interviews');
-                  }
+                  setDashboardSection(isAccepted ? 'interviews' : 'all');
                   setStep('dashboard');
                 }}
                 className="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3 rounded-lg font-bold text-xs border border-slate-300 transition-colors shadow-sm"
@@ -2667,7 +3112,7 @@ export const ApplicantPortal: React.FC<ApplicantPortalProps> = ({
                 onClick={onExitPortal}
                 className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold text-xs shadow-sm shadow-indigo-200 transition-colors"
               >
-                Return to Faculty / Role Selector
+                Sign Out
               </button>
             </div>
           </div>

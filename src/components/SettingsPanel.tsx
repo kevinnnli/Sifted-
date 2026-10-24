@@ -1,27 +1,38 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Sliders, Cpu, Save, AlertCircle, CheckCircle2, Key, Database } from 'lucide-react';
+import { ShieldCheck, Lock, Cpu, Save, AlertCircle, CheckCircle2, Database } from 'lucide-react';
 import { ProfessorProfile } from '../types';
 
 interface SettingsPanelProps {
   currentProfessor: ProfessorProfile;
   onUpdateProfessor: (prof: ProfessorProfile) => void;
+  aiConfigured?: boolean | null;
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   currentProfessor,
   onUpdateProfessor,
+  aiConfigured = null,
 }) => {
   const [labName, setLabName] = useState(currentProfessor.labName);
   const [email, setEmail] = useState(currentProfessor.email);
-  const [aiSensitivity, setAiSensitivity] = useState<'high' | 'medium' | 'low'>('medium');
-  const [autoEmailInvite, setAutoEmailInvite] = useState(true);
-  const [allowLateSubmissions, setAllowLateSubmissions] = useState(false);
+  const [aiSensitivity, setAiSensitivity] = useState<'high' | 'medium' | 'low'>(currentProfessor.aiSensitivity || 'medium');
+  const [allowLateSubmissions, setAllowLateSubmissions] = useState(currentProfessor.allowLateSubmissions ?? false);
 
   const handleSave = () => {
+    if (!labName.trim()) {
+      alert('Lab or research group name cannot be empty.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      alert('Please enter a valid notification email address.');
+      return;
+    }
     onUpdateProfessor({
       ...currentProfessor,
-      labName,
-      email,
+      labName: labName.trim(),
+      email: email.trim(),
+      aiSensitivity,
+      allowLateSubmissions,
     });
     alert('Settings saved successfully!');
   };
@@ -101,8 +112,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <div className="grid grid-cols-3 gap-3 pt-2">
               {[
                 { id: 'low', label: 'Low Sensitivity', desc: 'Flag only extreme verbatim copies (>85% AI score)' },
-                { id: 'medium', label: 'Balanced (Default)', desc: 'Recommended balance for academic screening' },
-                { id: 'high', label: 'Strict Auditing', desc: 'Flag subtle paraphrasing and syntax shifts' },
+                { id: 'medium', label: 'Balanced (Default)', desc: 'Flag sessions above 50% AI score' },
+                { id: 'high', label: 'Strict Auditing', desc: 'Flag sessions above 35% AI score' },
               ].map((lvl) => (
                 <div
                   key={lvl.id}
@@ -120,19 +131,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </div>
 
             <div className="space-y-3 pt-4 border-t border-slate-100">
-              <label className="flex items-center justify-between cursor-pointer">
-                <div>
-                  <span className="text-xs font-bold text-slate-800 block">Automated Applicant Invitation Emails</span>
-                  <span className="text-[10px] text-slate-500">Send confirmation emails upon assessment assignment</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={autoEmailInvite}
-                  onChange={(e) => setAutoEmailInvite(e.target.checked)}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                />
-              </label>
-
               <label className="flex items-center justify-between cursor-pointer">
                 <div>
                   <span className="text-xs font-bold text-slate-800 block">Allow Late Submissions (Grace Period)</span>
@@ -155,13 +153,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">System & API Status</h3>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200 flex items-center space-x-2 shadow-sm">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <div>
-                  <span className="font-bold text-emerald-900 block">Gemini AI Server Route</span>
-                  <span className="text-[10px] text-emerald-700">Connected to /api/ai endpoints</span>
+              {aiConfigured ? (
+                <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200 flex items-center space-x-2 shadow-sm">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-emerald-900 block">Gemini AI Server Route</span>
+                    <span className="text-[10px] text-emerald-700">API key configured on the server</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-3 rounded-md bg-amber-50 border border-amber-200 flex items-center space-x-2 shadow-sm">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-amber-900 block">Gemini AI Server Route</span>
+                    <span className="text-[10px] text-amber-700">
+                      {aiConfigured === null ? 'Checking server status…' : 'No GEMINI_API_KEY set — built-in grading and template questions are used'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="p-3 rounded-md bg-blue-50 border border-blue-200 flex items-center space-x-2 shadow-sm">
                 <Lock className="w-4 h-4 text-blue-600 shrink-0" />
@@ -175,7 +185,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <Database className="w-4 h-4 text-indigo-600 shrink-0" />
                 <div>
                   <span className="font-bold text-slate-900 block">Storage Resilience</span>
-                  <span className="text-[10px] text-slate-500">Local state synced with fallback simulations</span>
+                  <span className="text-[10px] text-slate-500">Saved to database.json on the server</span>
                 </div>
               </div>
             </div>

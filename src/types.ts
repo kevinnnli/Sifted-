@@ -136,6 +136,7 @@ export interface IntegrityReport {
 export interface ApplicantSubmission {
   id: string;
   assessmentId: string;
+  invitationId?: string;
   applicantName: string;
   applicantEmail: string;
   secondaryEmail?: string;
@@ -151,7 +152,8 @@ export interface ApplicantSubmission {
   totalWeightedScore?: number;
   maxTotalWeightedScore?: number;
   hireabilityLevel?: HireabilityLevel;
-  topicBreakdown: Record<TopicCategory, { scored: number; total: number; percentage: number }>;
+  // Only topics that actually appear in the assessment are included
+  topicBreakdown: Partial<Record<TopicCategory, { scored: number; total: number; percentage: number }>>;
   timeAnalysis: Record<string, number>; // questionId -> seconds
   confidenceScore: number;
   interviewRecommendation: InterviewRecommendation;
@@ -165,6 +167,7 @@ export interface ApplicantSubmission {
   meetingLink?: string;
   meetingConfirmed?: boolean;
   applicantResponseToInterview?: 'Accepted' | 'Declined' | 'Pending';
+  hiddenByApplicant?: boolean; // applicant dismissed it from their own dashboard; professor still sees it
 }
 
 export interface ProfessorProfile {
@@ -174,6 +177,8 @@ export interface ProfessorProfile {
   department: string;
   labName: string;
   avatar: string;
+  aiSensitivity?: 'high' | 'medium' | 'low';
+  allowLateSubmissions?: boolean;
 }
 
 export interface UserAccount {

@@ -29,7 +29,6 @@ interface ProfessorDashboardProps {
   onNavigateToAssessments?: () => void;
   onNavigateToQuestionBank?: () => void;
   onOpenAIQuestionGenerator?: () => void;
-  onOpenCandidatePortal?: () => void;
   onOpenAssignModal?: () => void;
 }
 
@@ -42,7 +41,6 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
   onNavigateToAssessments,
   onNavigateToQuestionBank,
   onOpenAIQuestionGenerator,
-  onOpenCandidatePortal,
   onOpenAssignModal,
 }) => {
   const handleNav = (tab: string) => {
@@ -61,7 +59,8 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('all');
 
   // Filter submissions by professor assessments
-  const profAssessmentIds = assessments.filter((a) => !a.professorId || a.professorId === currentProfessor.id).map((a) => a.id);
+  const profAssessmentList = assessments.filter((a) => !a.professorId || a.professorId === currentProfessor.id);
+  const profAssessmentIds = profAssessmentList.map((a) => a.id);
   const relevantSubmissions = submissions.filter((s) => profAssessmentIds.includes(s.assessmentId));
 
   const filteredSubmissions = relevantSubmissions.filter((sub) => {
@@ -79,6 +78,9 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
   const avgScore = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '0';
   const highScore = scores.length ? Math.max(...scores).toFixed(1) : '0';
   const lowScore = scores.length ? Math.min(...scores).toFixed(1) : '0';
+  const avgTimeLimit = profAssessmentList.length
+    ? Math.round(profAssessmentList.reduce((a, b) => a + (b.timeLimitMinutes || 0), 0) / profAssessmentList.length)
+    : 0;
   const avgTimeMinutes = relevantSubmissions.length
     ? Math.round(relevantSubmissions.reduce((a, b) => a + b.totalTimeSpentSeconds, 0) / relevantSubmissions.length / 60)
     : 0;
@@ -176,7 +178,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
             <TrendingUp className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900">{avgScore}%</div>
-          <div className="text-[11px] text-emerald-600 mt-1 font-medium">+4.2% vs last semester</div>
+          <div className="text-[11px] text-slate-500 mt-1">Difficulty-weighted average</div>
         </div>
 
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
@@ -185,7 +187,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
             <Award className="w-4 h-4 text-amber-500" />
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900">{highScore}%</div>
-          <div className="text-[11px] text-slate-500 mt-1">Top 1% candidate tier</div>
+          <div className="text-[11px] text-slate-500 mt-1">Best submission so far</div>
         </div>
 
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
@@ -194,7 +196,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
             <AlertTriangle className="w-4 h-4 text-rose-500" />
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900">{lowScore}%</div>
-          <div className="text-[11px] text-rose-500 mt-1">Needs foundation review</div>
+          <div className="text-[11px] text-slate-500 mt-1">Weakest submission so far</div>
         </div>
 
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
@@ -203,7 +205,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
             <Clock className="w-4 h-4 text-blue-600" />
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900">{avgTimeMinutes} min</div>
-          <div className="text-[11px] text-slate-500 mt-1">Within 60 min time limit</div>
+          <div className="text-[11px] text-slate-500 mt-1">{avgTimeLimit ? `Avg. time limit ${avgTimeLimit} min` : 'No assessments yet'}</div>
         </div>
 
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm border-l-4 border-l-indigo-500 flex flex-col justify-between">
@@ -321,7 +323,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
           <div>
-            <h3 className="text-base font-bold text-slate-900">Completed Applicant Submissions</h3>
+            <h3 className="text-base font-bold text-slate-900">Applicant Submissions</h3>
             <p className="text-xs text-slate-500">Click any applicant to inspect full AI grading rubrics, integrity checks, and written interview explanations.</p>
           </div>
 
@@ -344,14 +346,12 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
               onChange={(e) => setSelectedAssessmentId(e.target.value)}
               className="bg-white border border-slate-300 rounded-md px-3 py-1.5 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="all">All Assessments ({assessments.filter(a => !a.professorId || a.professorId === currentProfessor.id).length})</option>
-              {assessments
-                .filter((a) => !a.professorId || a.professorId === currentProfessor.id)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.title.length > 35 ? a.title.substring(0, 35) + '...' : a.title}
-                  </option>
-                ))}
+              <option value="all">All Assessments ({profAssessmentList.length})</option>
+              {profAssessmentList.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.title.length > 35 ? a.title.substring(0, 35) + '...' : a.title}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -385,7 +385,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
                   >
                     <td className="py-4 px-6 font-semibold text-slate-900 flex items-center space-x-3">
                       <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs">
-                        {sub.applicantName.split(' ').map((n) => n[0]).join('')}
+                        {sub.applicantName.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 3)}
                       </div>
                       <div>
                         <span>{sub.applicantName}</span>
@@ -428,7 +428,7 @@ export const ProfessorDashboard: React.FC<ProfessorDashboardProps> = ({
                       {getRecommendationBadge(sub.interviewRecommendation)}
                     </td>
                     <td className="py-4 px-6">
-                      {sub.integrityReport.integrityFlagged ? (
+                      {sub.integrityReport?.integrityFlagged ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300">
                           <AlertTriangle className="w-3 h-3 mr-1" /> Flagged ({sub.integrityReport.aiGeneratedProbability}% AI)
                         </span>

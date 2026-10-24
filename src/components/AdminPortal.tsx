@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Building2, GraduationCap, Users, PlusCircle, CheckCircle2, Search, LogOut, Award, Lock, Mail, UserPlus } from 'lucide-react';
+import { ShieldCheck, Building2, GraduationCap, CheckCircle2, AlertCircle, Search, LogOut, Award, Lock, Mail, UserPlus, RotateCcw } from 'lucide-react';
 import { UserAccount, ProfessorProfile } from '../types';
 
 interface AdminPortalProps {
@@ -9,6 +9,7 @@ interface AdminPortalProps {
   onCreateProfessor: (newProfAcc: UserAccount, newProfProfile: ProfessorProfile) => void;
   onSwitchAccount: (account: UserAccount) => void;
   onExitToLanding: () => void;
+  onResetData?: () => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -18,11 +19,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onCreateProfessor,
   onSwitchAccount,
   onExitToLanding,
+  onResetData,
 }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'professor' | 'applicant' | 'admin'>('all');
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // New Professor Form State
   const [profName, setProfName] = useState('');
@@ -33,7 +36,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleCreateProfessorSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!profName.trim() || !profEmail.trim() || !profLabName.trim()) return;
+    if (accounts.some((a) => a.email.toLowerCase() === profEmail.trim().toLowerCase())) {
+      setFormError('An account with this email address already exists.');
+      return;
+    }
 
     const profId = `prof-${Date.now()}`;
     const accId = `acc-prof-${Date.now()}`;
@@ -97,7 +105,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
             <div>
               <span className="text-sm font-extrabold text-white tracking-tight flex items-center">
-                SCHOLARSCREEN <span className="ml-1.5 px-2 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 uppercase font-bold border border-purple-500/30">Provost Governance</span>
+                SIFTED <span className="ml-1.5 px-2 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 uppercase font-bold border border-purple-500/30">Provost Governance</span>
               </span>
               <span className="text-[11px] text-slate-400 block">Institutional Admin & Access Authorization</span>
             </div>
@@ -239,6 +247,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 >
                   Students
                 </button>
+                <button
+                  onClick={() => setRoleFilter('admin')}
+                  className={`px-3 py-1 rounded ${roleFilter === 'admin' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Admins
+                </button>
               </div>
             </div>
           </div>
@@ -256,6 +270,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
+                {filteredAccounts.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-slate-500">
+                      No accounts match your search.
+                    </td>
+                  </tr>
+                )}
                 {filteredAccounts.map((acc) => {
                   const isProf = acc.role === 'professor';
                   const isAdmin = acc.role === 'admin';
@@ -317,18 +338,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         )}
                       </td>
                       <td className="py-4 px-6">
-                        <span className="inline-flex items-center space-x-1 text-emerald-400 font-semibold">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Verified & Active</span>
-                        </span>
+                        {acc.isVerified === false ? (
+                          <span className="inline-flex items-center space-x-1 text-amber-400 font-semibold">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            <span>Unverified</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center space-x-1 text-emerald-400 font-semibold">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Verified & Active</span>
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 px-6 text-right">
                         <button
                           onClick={() => onSwitchAccount(acc)}
-                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition-colors border border-slate-700"
+                          disabled={acc.id === currentAccount.id}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 font-semibold transition-colors border border-slate-700"
                           title="Switch into this user's portal view"
                         >
-                          Switch to Portal →
+                          {acc.id === currentAccount.id ? 'Current Account' : 'Switch to Portal →'}
                         </button>
                       </td>
                     </tr>
@@ -338,6 +367,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </table>
           </div>
         </div>
+
+        {onResetData && (
+          <div className="bg-slate-900 border border-rose-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-bold text-white">Reset Demo Data</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Restore all accounts, assessments, questions, submissions and invitations to the original sample data. This permanently discards every change.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (window.confirm('Reset all data to the original sample data? Every account, exam, question and submission created since will be deleted.')) {
+                  onResetData();
+                }
+              }}
+              className="px-4 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs font-bold border border-rose-500/30 transition-colors flex items-center space-x-1.5 shrink-0"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset to Sample Data</span>
+            </button>
+          </div>
+        )}
       </main>
 
       {/* CREATE PROFESSOR MODAL */}
@@ -357,7 +408,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setFormError(null);
+                }}
                 className="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-800/60"
               >
                 ✕
@@ -365,6 +419,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
 
             <form onSubmit={handleCreateProfessorSubmit} className="space-y-4 text-xs">
+              {formError && (
+                <div className="bg-rose-500/10 border border-rose-500/30 p-3 rounded-lg text-rose-300 font-medium">
+                  {formError}
+                </div>
+              )}
+
               <div className="bg-purple-500/10 border border-purple-500/20 p-3 rounded-lg text-purple-300 flex items-center space-x-2">
                 <Lock className="w-4 h-4 shrink-0" />
                 <span>

@@ -1,5 +1,5 @@
 import { Question, Assessment, ApplicantSubmission, ProfessorProfile, UserAccount, AssessmentInvitation } from '../types';
-import { getDifficultyMultiplier, calculateSubmissionGrading } from '../utils/grading';
+import { applyScoreOverrides, getHireabilityLevel, isEmptyOrTrivialResponse } from '../utils/grading';
 
 export const MOCK_PROFESSORS: ProfessorProfile[] = [
   {
@@ -44,6 +44,8 @@ export const MOCK_QUESTIONS: Question[] = [
   },
   {
     id: 'q-math-1',
+    isPublic: true,
+    professorId: 'prof-elena',
     type: 'math',
     title: 'Singular Value Decomposition & Low-Rank Approximation',
     prompt: 'Let matrix A be a 4 × 4 real symmetric matrix with eigenvalues λ₁ = 12, λ₂ = -8, λ₃ = 3, λ₄ = 0.5. What is the spectral norm ||A||₂ of matrix A, and what is the Frobenius error norm ||A - A_k||_F when approximating A with its rank-2 truncated SVD approximation A₂?',
@@ -58,6 +60,8 @@ export const MOCK_QUESTIONS: Question[] = [
   },
   {
     id: 'q-prog-1',
+    isPublic: true,
+    professorId: 'prof-elena',
     type: 'programming',
     title: 'Implement L2-Regularized Gradient Descent',
     prompt: 'Write a Python function `ridge_gradient_descent(X, y, alpha, lr, epochs)` that performs full-batch gradient descent to solve Ridge Regression without using scikit-learn. Return the final weights vector `w` (including intercept as the first element if assumed padded or handled). For this test, assume X is already prepended with a column of ones for the bias term, and alpha is the L2 penalty parameter.',
@@ -99,6 +103,8 @@ def ridge_gradient_descent(X: np.ndarray, y: np.ndarray, alpha: float, lr: float
   },
   {
     id: 'q-res-1',
+    isPublic: true,
+    professorId: 'prof-elena',
     type: 'research',
     title: 'Training Loss Diagnosis & Experiment Critique',
     prompt: 'Examine the accompanying training and validation loss curves from a 50-epoch deep neural network training run on a medical imaging segmentation dataset. Analyze the behavior occurring around Epoch 20. Diagnose the primary failure mode and propose two concrete algorithmic modifications (not just "more data") to mitigate this issue.',
@@ -123,6 +129,8 @@ def ridge_gradient_descent(X: np.ndarray, y: np.ndarray, alpha: float, lr: float
   },
   {
     id: 'q-sa-1',
+    isPublic: true,
+    professorId: 'prof-elena',
     type: 'short-answer',
     title: 'PAC Learning Bounds & Sample Complexity',
     prompt: 'Briefly explain the intuitive significance of the VC (Vapnik-Chervonenkis) dimension in Probably Approximately Correct (PAC) learning. Why can a hypothesis class with infinite VC dimension fail to be PAC learnable even with zero training error?',
@@ -941,17 +949,17 @@ def ridge_gradient_descent(X: np.ndarray, y: np.ndarray, alpha: float, lr: float
 ];
 
 export const MOCK_SUBMISSIONS: ApplicantSubmission[] = RAW_MOCK_SUBMISSIONS.map((sub) => {
-  const graded = calculateSubmissionGrading(MOCK_QUESTIONS, sub.responses);
+  // Keep the authored per-question scores and feedback; derive the difficulty-weighted totals,
+  // topic breakdown and hireability tier from them using only this assessment's questions.
+  const assessment = MOCK_ASSESSMENTS.find((a) => a.id === sub.assessmentId);
+  const examQuestions = (assessment?.questionIds || Object.keys(sub.responses))
+    .map((id) => MOCK_QUESTIONS.find((q) => q.id === id))
+    .filter((q): q is Question => q !== undefined);
+  const scored = applyScoreOverrides(sub, {}, examQuestions);
+  const emptyCount = examQuestions.filter((q) => isEmptyOrTrivialResponse(sub.responses[q.id]?.answer, q)).length;
   return {
-    ...sub,
-    responses: graded.evaluatedResponses,
-    totalWeightedScore: graded.totalWeightedScore,
-    maxTotalWeightedScore: graded.maxTotalWeightedScore,
-    overallScore: graded.overallScore,
-    hireabilityLevel: graded.hireabilityLevel,
-    interviewRecommendation: graded.interviewRecommendation,
-    recommendationExplanation: graded.recommendationExplanation,
-    aiSummary: graded.aiSummary,
+    ...scored,
+    hireabilityLevel: getHireabilityLevel(scored.overallScore, emptyCount, examQuestions.length),
   };
 });
 
@@ -1052,9 +1060,9 @@ export const MOCK_INVITATIONS: AssessmentInvitation[] = [
     applicantEmail: 'alex.chen@stanford.edu',
     applicantName: 'Alex Chen',
     assignedAt: '2026-07-20T10:00:00.000Z',
-    status: 'completed',
+    status: 'pending',
     notes: 'Please complete all algorithmic coding questions with Python.',
-    deadline: '2026-08-15',
+    deadline: '2027-01-15',
   },
   {
     id: 'inv-2',
@@ -1063,20 +1071,20 @@ export const MOCK_INVITATIONS: AssessmentInvitation[] = [
     applicantEmail: 'psharma@mit.edu',
     applicantName: 'Priya Sharma',
     assignedAt: '2026-07-21T14:30:00.000Z',
-    status: 'completed',
+    status: 'pending',
     notes: 'Focus on the statistical inference and linear algebra derivations.',
-    deadline: '2026-08-15',
+    deadline: '2027-01-15',
   },
   {
     id: 'inv-3',
-    assessmentId: 'as-ml-postdoc-2026',
+    assessmentId: 'as-ai-phd-2026',
     professorId: 'prof-elena',
     applicantEmail: 'dmiller@berkeley.edu',
     applicantName: 'David Miller',
     assignedAt: '2026-07-22T09:15:00.000Z',
-    status: 'completed',
+    status: 'pending',
     notes: 'High-performance computing and distributed training evaluation.',
-    deadline: '2026-08-20',
+    deadline: '2027-01-20',
   },
   {
     id: 'inv-4',
@@ -1087,18 +1095,18 @@ export const MOCK_INVITATIONS: AssessmentInvitation[] = [
     assignedAt: '2026-07-26T16:00:00.000Z',
     status: 'pending',
     notes: 'Welcome Maya! Please complete this PhD screening exam at your earliest convenience.',
-    deadline: '2026-08-30',
+    deadline: '2027-01-30',
   },
   {
     id: 'inv-5',
-    assessmentId: 'as-ml-postdoc-2026',
+    assessmentId: 'as-stats-qual-2026',
     professorId: 'prof-marcus',
     applicantEmail: 'alex.chen@stanford.edu',
     applicantName: 'Alex Chen',
     assignedAt: '2026-07-27T08:00:00.000Z',
     status: 'pending',
     notes: 'Dr. Thorne assigned you the Advanced Statistical & Genomic AI screening.',
-    deadline: '2026-08-25',
+    deadline: '2027-01-25',
   },
 ];
 

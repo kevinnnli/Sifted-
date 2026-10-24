@@ -7,51 +7,51 @@ interface AssignAssessmentModalProps {
   onClose: () => void;
   assessments?: Assessment[];
   accounts?: UserAccount[];
-  userAccounts?: UserAccount[];
+  invitations?: AssessmentInvitation[];
   currentProfessor?: ProfessorProfile;
   preselectedAssessmentId?: string;
-  initialAssessmentId?: string;
   onAssign: (invitation: AssessmentInvitation) => void;
 }
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const toDateInputValue = (date: Date) => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().split('T')[0];
+};
 
 export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
   isOpen,
   onClose,
   assessments = [],
-  accounts,
-  userAccounts,
+  accounts = [],
+  invitations = [],
   currentProfessor,
   preselectedAssessmentId,
-  initialAssessmentId,
   onAssign,
 }) => {
-  const safeAccounts = accounts || userAccounts || [];
-  const safeAssessments = assessments || [];
-  const initId = preselectedAssessmentId || initialAssessmentId || (safeAssessments[0]?.id || '');
-
-  const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>(initId);
+  const today = toDateInputValue(new Date());
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>(
+    assessments.some((a) => a.id === preselectedAssessmentId) ? preselectedAssessmentId! : assessments[0]?.id || ''
+  );
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
   const [customEmail, setCustomEmail] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [deadline, setDeadline] = useState('2026-08-30');
+  const [customEmailError, setCustomEmailError] = useState<string | null>(null);
+  const [deadline, setDeadline] = useState(toDateInputValue(new Date(Date.now() + 14 * 86400000)));
   const [notes, setNotes] = useState('Please complete this screening exam in full-screen mode at your earliest convenience.');
-  const [successMsg, setSuccessMsg] = useState(false);
-
-  React.useEffect(() => {
-    if (isOpen) {
-      setSelectedAssessmentId(preselectedAssessmentId || initialAssessmentId || (safeAssessments[0]?.id || ''));
-    }
-  }, [isOpen, preselectedAssessmentId, initialAssessmentId, safeAssessments]);
+  const [assignedSummary, setAssignedSummary] = useState<{ assigned: number; skipped: number } | null>(null);
 
   if (!isOpen) return null;
 
-  const applicantAccounts = safeAccounts.filter((a) => a?.role === 'applicant');
-  const selectedAssessment = safeAssessments.find((a) => a?.id === selectedAssessmentId) || safeAssessments[0] || {
-    id: 'as-ai-phd-2026',
-    title: 'Default Graduate Screening Assessment',
-    researchGroup: 'Admissions Lab',
-    questionIds: []
-  };
+  const applicantAccounts = accounts.filter((a) => a?.role === 'applicant');
+  const selectedAssessment = assessments.find((a) => a.id === selectedAssessmentId);
+
+  // Students who already have an open (not yet submitted) invitation for this assessment
+  const alreadyInvited = new Set(
+    invitations
+      .filter((i) => i.assessmentId === selectedAssessmentId && i.status !== 'completed' && i.status !== 'reviewed')
+      .map((i) => i.applicantEmail.toLowerCase())
+  );
 
   const toggleEmail = (email: string) => {
     setSelectedEmails((prev) =>
@@ -59,10 +59,13 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
     );
   };
 
-  const handleAddCustomEmail = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customEmail.trim() || !customEmail.includes('@')) return;
+  const handleAddCustomEmail = () => {
     const emailLower = customEmail.trim().toLowerCase();
+    if (!EMAIL_PATTERN.test(emailLower)) {
+      setCustomEmailError('Please enter a valid email address.');
+      return;
+    }
+    setCustomEmailError(null);
     if (!selectedEmails.includes(emailLower)) {
       setSelectedEmails((prev) => [...prev, emailLower]);
     }
@@ -71,30 +74,36 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
 
   const handleAssignSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedEmails.length === 0) return;
+    if (selectedEmails.length === 0 || !selectedAssessment) return;
 
-    selectedEmails.forEach((email) => {
-      const acc = safeAccounts.find((a) => a?.email.toLowerCase() === email.toLowerCase());
-      const inv: AssessmentInvitation = {
-        id: `inv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        assessmentId: selectedAssessment.id || selectedAssessmentId || 'as-ai-phd-2026',
-        professorId: currentProfessor?.id || 'prof-elena',
+    let assigned = 0;
+    let skipped = 0;
+    selectedEmails.forEach((email, idx) => {
+      if (alreadyInvited.has(email)) {
+        skipped++;
+        return;
+      }
+      const acc = accounts.find((a) => a?.email.toLowerCase() === email.toLowerCase());
+      onAssign({
+        id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+        assessmentId: selectedAssessment.id,
+        professorId: currentProfessor?.id || selectedAssessment.professorId,
         applicantEmail: email,
-        applicantName: acc?.name || customName || email.split('@')[0],
+        applicantName: acc?.name || email.split('@')[0],
         assignedAt: new Date().toISOString(),
         status: 'pending',
         deadline: deadline || undefined,
-        notes: notes || undefined,
-      };
-      onAssign(inv);
+        notes: notes.trim() || undefined,
+      });
+      assigned++;
     });
 
-    setSuccessMsg(true);
+    setAssignedSummary({ assigned, skipped });
     setTimeout(() => {
-      setSuccessMsg(false);
+      setAssignedSummary(null);
       setSelectedEmails([]);
       onClose();
-    }, 1500);
+    }, 1800);
   };
 
   return (
@@ -121,15 +130,36 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
           </div>
         </div>
 
-        {successMsg ? (
+        {assignedSummary ? (
           <div className="p-12 text-center space-y-3">
             <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-10 h-10" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900">Test Assigned Successfully!</h3>
+            <h3 className="text-lg font-bold text-slate-900">
+              {assignedSummary.assigned > 0 ? 'Test Assigned Successfully!' : 'Nothing New to Assign'}
+            </h3>
             <p className="text-sm text-slate-600 max-w-md mx-auto">
-              The selected candidates will see <strong className="text-slate-900">{selectedAssessment?.title}</strong> in their Candidate Portal upon sign-in.
+              {assignedSummary.assigned > 0 && (
+                <>
+                  {assignedSummary.assigned} candidate(s) will see <strong className="text-slate-900">{selectedAssessment?.title}</strong> in their Candidate Portal upon sign-in.{' '}
+                </>
+              )}
+              {assignedSummary.skipped > 0 && <>{assignedSummary.skipped} candidate(s) already had an open invitation and were skipped.</>}
             </p>
+          </div>
+        ) : assessments.length === 0 ? (
+          <div className="p-12 text-center space-y-3">
+            <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+            <h3 className="text-lg font-bold text-slate-900">No Assessments Yet</h3>
+            <p className="text-sm text-slate-600 max-w-md mx-auto">
+              Create and save an assessment in the Assessment Builder before assigning it to candidates.
+            </p>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 border border-slate-300 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Close
+            </button>
           </div>
         ) : (
           <form onSubmit={handleAssignSubmit} className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
@@ -144,12 +174,18 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                 onChange={(e) => setSelectedAssessmentId(e.target.value)}
                 className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                {safeAssessments.map((a) => (
+                {assessments.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.title} ({a.researchGroup}) • {a?.questionIds?.length || 0} Questions
+                    {a.title} ({a.researchGroup}) • {a?.questionIds?.length || 0} Questions{a.isActive === false ? ' • DRAFT' : ''}
                   </option>
                 ))}
               </select>
+              {selectedAssessment && selectedAssessment.isActive === false && (
+                <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 flex items-center">
+                  <AlertCircle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                  This assessment is still a draft. Candidates will see the invitation but can't start it until you publish it.
+                </p>
+              )}
             </div>
 
             {/* Step 2: Select Applicant Accounts */}
@@ -168,22 +204,30 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-lg bg-slate-50/50">
+                {applicantAccounts.length === 0 && (
+                  <p className="text-xs text-slate-500 p-3 md:col-span-2">No student accounts have registered yet. Add an email address below instead.</p>
+                )}
                 {applicantAccounts.map((acc) => {
-                  const isSelected = selectedEmails.includes(acc.email.toLowerCase());
+                  const email = acc.email.toLowerCase();
+                  const isSelected = selectedEmails.includes(email);
+                  const hasOpenInvite = alreadyInvited.has(email);
                   return (
                     <div
                       key={acc.id}
-                      onClick={() => toggleEmail(acc.email.toLowerCase())}
-                      className={`p-2.5 rounded-md border cursor-pointer transition-all flex items-center space-x-2.5 ${
-                        isSelected
-                          ? 'border-emerald-600 bg-emerald-50 text-emerald-900 shadow-sm ring-1 ring-emerald-600'
-                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      onClick={() => !hasOpenInvite && toggleEmail(email)}
+                      className={`p-2.5 rounded-md border transition-all flex items-center space-x-2.5 ${
+                        hasOpenInvite
+                          ? 'border-slate-200 bg-slate-100 opacity-60 cursor-not-allowed'
+                          : isSelected
+                          ? 'cursor-pointer border-emerald-600 bg-emerald-50 text-emerald-900 shadow-sm ring-1 ring-emerald-600'
+                          : 'cursor-pointer border-slate-200 bg-white hover:border-slate-300'
                       }`}
+                      title={hasOpenInvite ? 'Already invited to this assessment' : undefined}
                     >
                       <img src={acc.avatar} alt={acc.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-bold truncate">{acc.name}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{acc.email}</div>
+                        <div className="text-[11px] text-slate-500 truncate">{hasOpenInvite ? 'Already invited' : acc.email}</div>
                       </div>
                       {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
                     </div>
@@ -197,7 +241,17 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                   <input
                     type="email"
                     value={customEmail}
-                    onChange={(e) => setCustomEmail(e.target.value)}
+                    onChange={(e) => {
+                      setCustomEmail(e.target.value);
+                      setCustomEmailError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      // Enter adds the email instead of submitting the whole assignment form
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomEmail();
+                      }
+                    }}
                     placeholder="Or type candidate email (e.g. new.student@univ.edu)"
                     className="w-full px-3 py-1.5 border border-slate-300 rounded-md text-xs text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
@@ -211,13 +265,19 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                   <span>Add Email</span>
                 </button>
               </div>
+              {customEmailError && <p className="mt-1 text-xs text-rose-600">{customEmailError}</p>}
 
               {selectedEmails.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {selectedEmails.map((email) => (
                     <span
                       key={email}
-                      className="inline-flex items-center space-x-1 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-1 rounded-md text-xs font-medium"
+                      className={`inline-flex items-center space-x-1 border px-2 py-1 rounded-md text-xs font-medium ${
+                        alreadyInvited.has(email)
+                          ? 'bg-slate-100 text-slate-500 border-slate-200 line-through'
+                          : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      }`}
+                      title={alreadyInvited.has(email) ? 'Already invited to this assessment — will be skipped' : undefined}
                     >
                       <Mail className="w-3 h-3 text-indigo-500" />
                       <span>{email}</span>
@@ -243,6 +303,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                 </label>
                 <input
                   type="date"
+                  min={today}
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs text-slate-900 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -278,7 +339,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={selectedEmails.length === 0}
+                  disabled={selectedEmails.length === 0 || !selectedAssessment || (deadline !== '' && deadline < today)}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-md text-xs font-semibold shadow-sm transition-colors flex items-center space-x-1.5"
                 >
                   <Send className="w-4 h-4" />

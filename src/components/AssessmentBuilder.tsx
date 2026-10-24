@@ -18,7 +18,17 @@ import {
   AlertCircle,
   Send,
 } from 'lucide-react';
-import { Assessment, Question, QuestionType, DifficultyLevel, TopicCategory, ProfessorProfile } from '../types';
+import { Assessment, Question, QuestionType, DifficultyLevel, ProfessorProfile, IntegrityOptions } from '../types';
+
+const DEFAULT_INTEGRITY_OPTIONS: IntegrityOptions = {
+  fullScreenMode: true,
+  tabSwitchDetection: true,
+  webcamMonitoring: false,
+  copyPasteDetection: true,
+  aiAnswerDetection: true,
+  randomizeQuestionOrder: true,
+  randomizeAnswerOrder: true,
+};
 
 interface AssessmentBuilderProps {
   currentProfessor: ProfessorProfile;
@@ -57,17 +67,9 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(activeAssessment?.timeLimitMinutes || 60);
   const [isAdaptive, setIsAdaptive] = useState(activeAssessment?.isAdaptive ?? true);
   const [isScoreVisible, setIsScoreVisible] = useState(activeAssessment?.isScoreVisible ?? false);
-  const [integrityOptions, setIntegrityOptions] = useState(activeAssessment?.integrityOptions || {
-    fullScreenMode: true,
-    tabSwitchDetection: true,
-    webcamMonitoring: false,
-    copyPasteDetection: true,
-    aiAnswerDetection: true,
-    randomizeQuestionOrder: true,
-    randomizeAnswerOrder: true,
-  });
+  const [integrityOptions, setIntegrityOptions] = useState<IntegrityOptions>(activeAssessment?.integrityOptions || DEFAULT_INTEGRITY_OPTIONS);
 
-  const [questionIds, setQuestionIds] = useState<string[]>(activeAssessment?.questionIds || ['q-mc-1', 'q-math-1', 'q-prog-1', 'q-res-1', 'q-sa-1']);
+  const [questionIds, setQuestionIds] = useState<string[]>(activeAssessment?.questionIds || []);
 
   // UI state for modals
   const [showQuestionBankModal, setShowQuestionBankModal] = useState<boolean>(false);
@@ -83,7 +85,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [aiQuestionType, setAiQuestionType] = useState<QuestionType>('long-form-essay');
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiGeneratedResult, setAiGeneratedResult] = useState<Question | null>(null);
+  const [aiIsFallback, setAiIsFallback] = useState<boolean>(false);
   const [aiIsPublic, setAiIsPublic] = useState<boolean>(true);
+
+  const currentQuestions = questionIds
+    .map((id) => questionBank.find((q) => q.id === id))
+    .filter((q): q is Question => q !== undefined);
+
+  const totalPoints = currentQuestions.reduce((a, b) => a + b.points, 0);
 
   const handleSelectAssessment = (id: string) => {
     setActiveAssessmentId(id);
@@ -97,8 +106,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setTimeLimitMinutes(found.timeLimitMinutes);
       setIsAdaptive(found.isAdaptive);
       setIsScoreVisible(found.isScoreVisible);
-      setIntegrityOptions(found.integrityOptions);
-      setQuestionIds(found.questionIds);
+      setIntegrityOptions(found.integrityOptions || DEFAULT_INTEGRITY_OPTIONS);
+      setQuestionIds(found.questionIds || []);
       setIsPublished(found.isActive ?? found.isPublished ?? true);
     }
   };
@@ -114,14 +123,26 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     setTimeLimitMinutes(60);
     setIsAdaptive(true);
     setIsScoreVisible(false);
-    setQuestionIds(['q-mc-1', 'q-math-1']);
+    setIntegrityOptions(DEFAULT_INTEGRITY_OPTIONS);
+    setQuestionIds([]);
   };
 
-  const handleSave = () => {
+  // Saves the assessment and returns its id, or null if it isn't valid yet
+  const handleSave = (): string | null => {
+    if (!title.trim()) {
+      alert('Please give the assessment a title (Step 1).');
+      setCurrentStep(1);
+      return null;
+    }
+    if (currentQuestions.length === 0) {
+      alert('Add at least one question before saving the assessment (Step 2).');
+      setCurrentStep(2);
+      return null;
+    }
     const newAssessment: Assessment = {
       id: activeAssessmentId === 'new' ? `as-${Date.now()}` : activeAssessmentId,
       professorId: currentProfessor.id,
-      title,
+      title: title.trim(),
       description,
       researchGroup,
       semester,
@@ -129,7 +150,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       isAdaptive,
       isScoreVisible,
       integrityOptions,
-      questionIds,
+      // Drop ids of questions that no longer exist in the bank
+      questionIds: currentQuestions.map((q) => q.id),
       createdAt: activeAssessment?.createdAt || new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
       isActive: isPublished,
@@ -140,12 +162,28 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     if (activeAssessmentId === 'new') {
       setActiveAssessmentId(newAssessment.id);
     }
-    alert(`Assessment "${title}" saved successfully!`);
+    alert(`Assessment "${newAssessment.title}" saved successfully!`);
+    return newAssessment.id;
+  };
+
+  const handleSaveAndAssign = () => {
+    if (!onOpenAssignModal) return;
+    const savedId = handleSave();
+    if (savedId) onOpenAssignModal(savedId);
+  };
+
+  const moveQuestion = (idx: number, direction: -1 | 1) => {
+    const ids = currentQuestions.map((q) => q.id);
+    const target = idx + direction;
+    if (target < 0 || target >= ids.length) return;
+    [ids[idx], ids[target]] = [ids[target], ids[idx]];
+    setQuestionIds(ids);
   };
 
   const handleGenerateAIQuestion = async () => {
     setAiGenerating(true);
     setAiGeneratedResult(null);
+    setAiIsFallback(false);
     try {
       const response = await fetch('/api/ai/generate-question', {
         method: 'POST',
@@ -162,12 +200,13 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       const data = await response.json();
       if (data && data.question) {
         setAiGeneratedResult(data.question);
+        setAiIsFallback(Boolean(data.isFallback));
       } else {
         throw new Error('Failed to parse question');
       }
     } catch (error) {
       console.error(error);
-      alert('Failed to generate question with AI. Using fallback simulation.');
+      alert('Failed to generate a question. Please check that the server is running and try again.');
     } finally {
       setAiGenerating(false);
     }
@@ -181,17 +220,12 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       professorId: currentProfessor.id,
     };
     onAddQuestionToBank(finalQuestion);
-    setQuestionIds([...questionIds, finalQuestion.id]);
+    setQuestionIds((prev) => (prev.includes(finalQuestion.id) ? prev : [...prev, finalQuestion.id]));
     setShowAIGeneratorModal(false);
     if (onCloseAIGenerator) onCloseAIGenerator();
     setAiGeneratedResult(null);
   };
 
-  const currentQuestions = questionIds
-    .map((id) => questionBank.find((q) => q.id === id))
-    .filter((q): q is Question => q !== undefined);
-
-  const totalPoints = currentQuestions.reduce((a, b) => a + b.points, 0);
 
   return (
     <div className="space-y-8 pb-16">
@@ -230,7 +264,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           </button>
 
           <button
-            onClick={handleSave}
+            onClick={() => handleSave()}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-1.5"
           >
             <Check className="w-4 h-4" />
@@ -239,7 +273,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
           {onOpenAssignModal && (
             <button
-              onClick={() => onOpenAssignModal(activeAssessmentId)}
+              onClick={() => (activeAssessmentId === 'new' ? handleSaveAndAssign() : onOpenAssignModal(activeAssessmentId))}
               className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
             >
               <Send className="w-4 h-4" />
@@ -408,15 +442,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
                   <div className="flex items-center space-x-1 shrink-0 self-end md:self-center">
                     <button
-                      onClick={() => {
-                        if (idx > 0) {
-                          const newIds = [...questionIds];
-                          const temp = newIds[idx - 1];
-                          newIds[idx - 1] = newIds[idx];
-                          newIds[idx] = temp;
-                          setQuestionIds(newIds);
-                        }
-                      }}
+                      onClick={() => moveQuestion(idx, -1)}
                       disabled={idx === 0}
                       className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 disabled:opacity-30"
                       title="Move Up"
@@ -424,16 +450,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                       <ArrowUp className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => {
-                        if (idx < questionIds.length - 1) {
-                          const newIds = [...questionIds];
-                          const temp = newIds[idx + 1];
-                          newIds[idx + 1] = newIds[idx];
-                          newIds[idx] = temp;
-                          setQuestionIds(newIds);
-                        }
-                      }}
-                      disabled={idx === questionIds.length - 1}
+                      onClick={() => moveQuestion(idx, 1)}
+                      disabled={idx === currentQuestions.length - 1}
                       className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 disabled:opacity-30"
                       title="Move Down"
                     >
@@ -735,10 +753,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             {onOpenAssignModal && (
               <button
-                onClick={() => {
-                  handleSave();
-                  onOpenAssignModal(activeAssessmentId === 'new' ? `as-${Date.now()}` : activeAssessmentId);
-                }}
+                onClick={handleSaveAndAssign}
                 className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2"
               >
                 <Send className="w-4 h-4" />
@@ -747,7 +762,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             )}
 
             <button
-              onClick={handleSave}
+              onClick={() => handleSave()}
               className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm shadow-indigo-200 transition-colors flex items-center justify-center space-x-2"
             >
               <Check className="w-4 h-4" />
@@ -854,7 +869,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 onClick={() => setShowQuestionBankModal(false)}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200"
               >
-                Done ({questionIds.length} questions selected)
+                Done ({currentQuestions.length} questions selected)
               </button>
             </div>
           </div>
@@ -978,6 +993,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               </div>
 
               {/* Generated Result Preview */}
+              {aiGeneratedResult && aiIsFallback && (
+                <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Gemini AI isn't available (no API key configured or the request failed), so this is a <strong>template question</strong>. Review and edit it in the Question Bank before using it.
+                  </span>
+                </div>
+              )}
               {aiGeneratedResult && (
                 <div className="p-5 rounded-lg bg-indigo-50/70 border border-indigo-200 space-y-4 animate-fade-in shadow-sm">
                   <div className="flex items-center justify-between">
@@ -1051,7 +1074,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             </div>
 
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center text-xs text-slate-500">
-              <span>Powered by Gemini 3.6 Flash Server-Side SDK</span>
+              <span>Powered by the Gemini API (server-side)</span>
               <button
                 onClick={() => {
                   setShowAIGeneratorModal(false);

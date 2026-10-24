@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, Search, Filter, Plus, FileText, CheckCircle2, Code, Terminal, BookOpen, Layers, Globe, Lock, User, Sparkles } from 'lucide-react';
+import { Database, Search, Plus, FileText, Globe, Lock, User, Sparkles, Trash2, Edit3 } from 'lucide-react';
 import { Question, TopicCategory, DifficultyLevel, QuestionType, ProfessorProfile } from '../types';
 
 interface QuestionBankProps {
@@ -33,6 +33,12 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
   const [manualRubric, setManualRubric] = useState<string>('');
   const [manualSampleAnswer, setManualSampleAnswer] = useState<string>('');
   const [manualIsPublic, setManualIsPublic] = useState<boolean>(true);
+  const [manualOptions, setManualOptions] = useState<string[]>(['', '', '', '']);
+  const [manualCorrectIndex, setManualCorrectIndex] = useState<number>(0);
+  const [manualLanguage, setManualLanguage] = useState<NonNullable<Question['language']>>('Python');
+  const [manualCodeTemplate, setManualCodeTemplate] = useState<string>('');
+  const [manualLatex, setManualLatex] = useState<string>('');
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
 
   const topics: TopicCategory[] = [
     'Machine Learning',
@@ -45,11 +51,14 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
   const difficulties: DifficultyLevel[] = ['Basic', 'Intermediate', 'Advanced', 'Research-Level'];
   const types: QuestionType[] = ['multiple-choice', 'short-answer', 'long-form-essay', 'math', 'programming', 'research'];
+  const languages: NonNullable<Question['language']>[] = ['Python', 'Java', 'C++', 'JavaScript', 'R', 'MATLAB'];
+  const formatType = (t: string) => t.replace(/-/g, ' ');
+  const isOwnQuestion = (q: Question) => Boolean(currentProfessor && q.professorId === currentProfessor.id);
 
   // Pool Filters
   const publicQuestions = questionBank.filter((q) => q.isPublic !== false);
   const myPrivateQuestions = questionBank.filter((q) => q.isPublic === false && q.professorId === currentProfessor?.id);
-  const myAllQuestions = questionBank.filter((q) => q.professorId === currentProfessor?.id || (!q.professorId && currentProfessor?.id === 'prof-elena'));
+  const myAllQuestions = questionBank.filter((q) => isOwnQuestion(q));
 
   const baseQuestions =
     poolView === 'public'
@@ -68,34 +77,107 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
     return matchesSearch && matchesTopic && matchesDiff && matchesType;
   });
 
+  const resetManualForm = () => {
+    setEditingQuestionId(null);
+    setManualTitle('');
+    setManualPrompt('');
+    setManualTopic('Machine Learning');
+    setManualDifficulty('Intermediate');
+    setManualType('short-answer');
+    setManualPoints(15);
+    setManualRubric('');
+    setManualSampleAnswer('');
+    setManualIsPublic(true);
+    setManualOptions(['', '', '', '']);
+    setManualCorrectIndex(0);
+    setManualLanguage('Python');
+    setManualCodeTemplate('');
+    setManualLatex('');
+  };
+
+  const openCreateModal = () => {
+    resetManualForm();
+    setShowManualModal(true);
+  };
+
+  const openEditModal = (q: Question) => {
+    setEditingQuestionId(q.id);
+    setManualTitle(q.title);
+    setManualPrompt(q.prompt);
+    setManualTopic(q.topic);
+    setManualDifficulty(q.difficulty);
+    setManualType(q.type);
+    setManualPoints(q.points);
+    setManualRubric(q.rubric || '');
+    setManualSampleAnswer(q.sampleAnswer || '');
+    setManualIsPublic(q.isPublic !== false);
+    const options = q.options && q.options.length >= 2 ? [...q.options] : ['', '', '', ''];
+    setManualOptions(options);
+    setManualCorrectIndex(Math.max(0, options.findIndex((o) => q.correctAnswers?.includes(o))));
+    setManualLanguage(q.language || 'Python');
+    setManualCodeTemplate(q.codeTemplate || '');
+    setManualLatex(q.latexFormula || '');
+    setShowManualModal(true);
+  };
+
   const handleCreateManualQuestion = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualTitle.trim() || !manualPrompt.trim()) {
       alert('Please enter a title and prompt.');
       return;
     }
+    const points = Math.round(Number(manualPoints));
+    if (!Number.isFinite(points) || points < 1 || points > 100) {
+      alert('Points must be a whole number between 1 and 100.');
+      return;
+    }
+    const options = manualOptions.map((o) => o.trim());
+    if (manualType === 'multiple-choice') {
+      const filled = options.filter(Boolean);
+      if (filled.length < 2) {
+        alert('A multiple-choice question needs at least two answer options.');
+        return;
+      }
+      if (new Set(filled).size !== filled.length) {
+        alert('Answer options must all be different.');
+        return;
+      }
+      if (!options[manualCorrectIndex]) {
+        alert('Please mark which (non-empty) option is the correct answer.');
+        return;
+      }
+    }
+    const existing = editingQuestionId ? questionBank.find((q) => q.id === editingQuestionId) : undefined;
     const newQ: Question = {
-      id: `q-custom-${Date.now()}`,
+      ...(existing || {}),
+      id: existing?.id || `q-custom-${Date.now()}`,
       type: manualType,
       title: manualTitle.trim(),
       prompt: manualPrompt.trim(),
       difficulty: manualDifficulty,
       difficultyWeight: manualDifficulty === 'Basic' ? 1.0 : manualDifficulty === 'Intermediate' ? 1.5 : manualDifficulty === 'Advanced' ? 2.0 : 3.0,
       topic: manualTopic,
-      points: Number(manualPoints) || 10,
+      points,
       rubric: manualRubric.trim() || 'Standard evaluation criteria apply.',
       sampleAnswer: manualSampleAnswer.trim(),
       isPublic: manualIsPublic,
-      professorId: currentProfessor?.id,
+      professorId: existing?.professorId || currentProfessor?.id,
+      // Type-specific fields: keep only those relevant to the chosen type
+      options: manualType === 'multiple-choice' ? options.filter(Boolean) : undefined,
+      correctAnswers: manualType === 'multiple-choice' ? [options[manualCorrectIndex]] : undefined,
+      language: manualType === 'programming' ? manualLanguage : undefined,
+      codeTemplate: manualType === 'programming' ? manualCodeTemplate : undefined,
+      testCases: manualType === 'programming' ? existing?.testCases : undefined,
+      latexFormula: manualType === 'math' && manualLatex.trim() ? manualLatex.trim() : undefined,
     };
     onAddQuestionToBank(newQ);
     setShowManualModal(false);
-    // Reset fields
-    setManualTitle('');
-    setManualPrompt('');
-    setManualRubric('');
-    setManualSampleAnswer('');
-    alert(`Question "${newQ.title}" added to ${manualIsPublic ? 'Public Question Bank' : 'your Private Questions'}!`);
+    alert(
+      existing
+        ? `Question "${newQ.title}" updated.`
+        : `Question "${newQ.title}" added to ${manualIsPublic ? 'Public Question Bank' : 'your Private Questions'}!`
+    );
+    resetManualForm();
   };
 
   return (
@@ -116,7 +198,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => setShowManualModal(true)}
+            onClick={openCreateModal}
             className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 px-4 py-2.5 rounded-md text-xs font-semibold shadow-sm transition-colors flex items-center space-x-2"
           >
             <Plus className="w-4 h-4 text-indigo-600" />
@@ -233,7 +315,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                 <option value="all">All Question Types</option>
                 {types.map((t) => (
                   <option key={t} value={t}>
-                    {t.replace('-', ' ')}
+                    {formatType(t)}
                   </option>
                 ))}
               </select>
@@ -277,7 +359,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
           filteredQuestions.map((q) => {
             const isExpanded = expandedId === q.id;
             const isPublic = q.isPublic !== false;
-            const isMyQuestion = q.professorId === currentProfessor?.id || (!q.professorId && currentProfessor?.id === 'prof-elena');
+            const isMyQuestion = isOwnQuestion(q);
 
             return (
               <div
@@ -301,7 +383,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                         {isPublic ? '🌐 Public' : '🔒 Private'}
                       </span>
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase tracking-wider">
-                        {q.type}
+                        {formatType(q.type)}
                       </span>
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
                         {q.difficulty}
@@ -317,14 +399,25 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                   </div>
 
                   <div className="flex items-center space-x-3 shrink-0 self-end md:self-center">
-                    {(isMyQuestion || !q.professorId) && (
+                    {isMyQuestion && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditModal(q);
+                        }}
+                        className="text-xs font-semibold px-2.5 py-1 rounded border bg-white text-slate-700 border-slate-300 hover:bg-slate-50 transition-colors flex items-center gap-1"
+                        title="Edit this question"
+                      >
+                        <Edit3 className="w-3 h-3" /> Edit
+                      </button>
+                    )}
+                    {isMyQuestion && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           onAddQuestionToBank({
                             ...q,
                             isPublic: !isPublic,
-                            professorId: q.professorId || currentProfessor?.id,
                           });
                         }}
                         className={`text-xs font-semibold px-2.5 py-1 rounded border transition-colors ${
@@ -425,7 +518,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
           <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
             <div className="p-6 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold">Create Custom Screening Question</h3>
+                <h3 className="text-lg font-bold">{editingQuestionId ? 'Edit Screening Question' : 'Create Custom Screening Question'}</h3>
                 <p className="text-xs text-slate-300">Add a tailored problem to the public or private question bank</p>
               </div>
               <button
@@ -489,7 +582,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                   >
                     {types.map((t) => (
                       <option key={t} value={t}>
-                        {t.replace('-', ' ')}
+                        {formatType(t)}
                       </option>
                     ))}
                   </select>
@@ -554,6 +647,97 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                   />
                 </div>
 
+                {manualType === 'multiple-choice' && (
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="font-semibold text-slate-700">Answer Options * <span className="font-normal text-slate-500">(select the correct one)</span></label>
+                    {manualOptions.map((opt, i) => (
+                      <div key={i} className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          name="correct-option"
+                          checked={manualCorrectIndex === i}
+                          onChange={() => setManualCorrectIndex(i)}
+                          className="text-emerald-600"
+                          title="Mark as correct answer"
+                        />
+                        <span className="w-5 font-bold text-slate-500">{String.fromCharCode(65 + i)}.</span>
+                        <input
+                          type="text"
+                          value={opt}
+                          onChange={(e) => setManualOptions(manualOptions.map((o, j) => (j === i ? e.target.value : o)))}
+                          placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                          className={`flex-1 px-3 py-2 bg-white border rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500 ${
+                            manualCorrectIndex === i ? 'border-emerald-500' : 'border-slate-300'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          disabled={manualOptions.length <= 2}
+                          onClick={() => {
+                            setManualOptions(manualOptions.filter((_, j) => j !== i));
+                            if (manualCorrectIndex >= i && manualCorrectIndex > 0) setManualCorrectIndex(manualCorrectIndex - 1);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
+                          title="Remove option"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {manualOptions.length < 8 && (
+                      <button
+                        type="button"
+                        onClick={() => setManualOptions([...manualOptions, ''])}
+                        className="text-indigo-600 font-semibold hover:underline"
+                      >
+                        + Add option
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {manualType === 'programming' && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="font-semibold text-slate-700">Programming Language</label>
+                      <select
+                        value={manualLanguage}
+                        onChange={(e) => setManualLanguage(e.target.value as NonNullable<Question['language']>)}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                      >
+                        {languages.map((l) => (
+                          <option key={l} value={l}>
+                            {l}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="font-semibold text-slate-700">Starter Code Template</label>
+                      <textarea
+                        rows={5}
+                        value={manualCodeTemplate}
+                        onChange={(e) => setManualCodeTemplate(e.target.value)}
+                        placeholder={'def solve(...):\n    # YOUR CODE HERE'}
+                        className="w-full px-3 py-2 bg-[#0F172A] text-emerald-400 border border-slate-700 rounded-md focus:ring-2 focus:ring-indigo-500 font-mono text-[11px]"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {manualType === 'math' && (
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="font-semibold text-slate-700">Formula / Expression (LaTeX, optional)</label>
+                    <input
+                      type="text"
+                      value={manualLatex}
+                      onChange={(e) => setManualLatex(e.target.value)}
+                      placeholder="e.g. ||A||_2 = \max_i |\sigma_i|"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500 font-mono"
+                    />
+                  </div>
+                )}
+
                 <div className="space-y-1 sm:col-span-2">
                   <label className="font-semibold text-slate-700">Grading Rubric / Evaluation Criteria</label>
                   <textarea
@@ -589,7 +773,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                   type="submit"
                   className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium shadow-sm shadow-indigo-200"
                 >
-                  Add Question to Bank
+                  {editingQuestionId ? 'Save Changes' : 'Add Question to Bank'}
                 </button>
               </div>
             </form>

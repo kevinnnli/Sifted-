@@ -6,6 +6,7 @@ interface LandingPageProps {
   onSelectAccount: (account: UserAccount) => void;
   onCreateStudentAccount: (newAcc: UserAccount) => void;
   accounts: UserAccount[];
+  initialTab?: 'overview' | 'student-signup' | 'login';
   assessmentsCount: number;
   questionsCount: number;
   submissionsCount: number;
@@ -15,12 +16,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onSelectAccount,
   onCreateStudentAccount,
   accounts,
+  initialTab = 'overview',
   assessmentsCount,
   questionsCount,
   submissionsCount,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'student-signup' | 'login'>('overview');
-  const [loginRoleFilter, setLoginRoleFilter] = useState<'all' | 'applicant' | 'professor' | 'admin'>('all');
+  const [activeTab, setActiveTab] = useState<'overview' | 'student-signup' | 'login'>(initialTab);
+  const [loginRoleFilter, setLoginRoleFilter] = useState<'all' | 'applicant' | 'professor' | 'admin'>(
+    initialTab === 'login' ? 'applicant' : 'all'
+  );
 
   // Student Sign Up Form State
   const [name, setName] = useState('');
@@ -33,8 +37,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const handleStudentRegister = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!name.trim() || !email.trim() || !secondaryEmail.trim()) {
-      setError('Both Primary University Email and Secondary Personal Email are required.');
+    if (!name.trim() || !email.trim() || !secondaryEmail.trim() || !university.trim() || !degreeProgram.trim()) {
+      setError('Please fill in your name, university, degree program, and both email addresses.');
+      return;
+    }
+    if (accounts.some((a) => a.email.toLowerCase() === email.trim().toLowerCase())) {
+      setError('An account with this university email already exists. Use "Sign In" to access it.');
       return;
     }
     if (email.trim().toLowerCase() === secondaryEmail.trim().toLowerCase()) {
@@ -55,8 +63,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       isVerified: true,
       role: 'applicant',
       avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80`,
-      university: university || 'Target University',
-      degreeProgram: degreeProgram || 'PhD / MS Applicant',
+      university: university.trim(),
+      degreeProgram: degreeProgram.trim(),
     };
 
     onCreateStudentAccount(newAcc);
@@ -81,7 +89,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             Elevating Faculty Evaluation & <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-400">Isolated Student Screening</span>
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-3xl mx-auto font-normal leading-relaxed">
-            ScholarScreen connects university research labs with prospective PhD and MS candidates. Students create isolated, verified accounts to take custom technical screening exams, while faculty evaluate algorithmic rigor and research intuition with automated AI grading rubrics.
+            Sifted connects university research labs with prospective PhD and MS candidates. Students create isolated, verified accounts to take custom technical screening exams, while faculty evaluate algorithmic rigor and research intuition with automated AI grading rubrics.
           </p>
 
           {/* Quick Stats Bar */}

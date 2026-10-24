@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Users, Search, Filter, Award, CheckCircle2, AlertTriangle, ShieldAlert, ArrowUpDown, FileText, Download, Mail, Send, MoreVertical, Eye, User, Calendar, X, Check, Clock, GraduationCap, Building2, Video, Trash2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Users, Search, Award, CheckCircle2, AlertTriangle, ShieldAlert, ArrowUpDown, Mail, Send, MoreVertical, Eye, User, Calendar, X, GraduationCap, Building2, Video, Trash2 } from 'lucide-react';
 import { ApplicantSubmission, Assessment, ProfessorProfile, InterviewRecommendation } from '../types';
 import { getHireabilityBadgeStyle, getHireabilityShortText } from '../utils/grading';
 
@@ -28,6 +28,8 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
   const [sortBy, setSortBy] = useState<'score' | 'time' | 'name'>('score');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  // The actions menu is rendered with fixed positioning so the table's overflow container can't clip it
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const [profileModalSub, setProfileModalSub] = useState<ApplicantSubmission | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [schedulingSub, setSchedulingSub] = useState<ApplicantSubmission | null>(null);
@@ -35,7 +37,37 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
   const [meetingTime, setMeetingTime] = useState<string>('10:00 AM EST');
   const [meetingLink, setMeetingLink] = useState<string>('https://meet.google.com/faculty-research-interview');
 
-  const profAssessmentIds = assessments.filter((a) => !a.professorId || a.professorId === currentProfessor.id).map((a) => a.id);
+  const profAssessments = assessments.filter((a) => !a.professorId || a.professorId === currentProfessor.id);
+  const profAssessmentIds = profAssessments.map((a) => a.id);
+
+  useEffect(() => {
+    if (!activeMenuId) return;
+    const close = () => setActiveMenuId(null);
+    document.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [activeMenuId]);
+
+  const showNotification = (message: string, ms = 3500) => {
+    setNotification(message);
+    setTimeout(() => setNotification(null), ms);
+  };
+
+  const handleCopyGeneralLink = async () => {
+    const link = `${window.location.origin}/?role=applicant`;
+    try {
+      await navigator.clipboard.writeText(link);
+      showNotification(`Student portal link copied: ${link}`);
+    } catch {
+      // Clipboard API can be unavailable (e.g. insecure context); let the professor copy it manually
+      window.prompt('Copy this student portal link:', link);
+    }
+  };
   const relevantSubmissions = submissions.filter((s) => profAssessmentIds.includes(s.assessmentId));
 
   const filteredSubmissions = relevantSubmissions
@@ -96,7 +128,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
             </button>
           )}
           <button 
-            onClick={() => alert("Simulating invitation link copy... The shareable link has been copied to clipboard!")}
+            onClick={handleCopyGeneralLink}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 flex items-center space-x-1.5 transition-colors"
           >
             <Mail className="w-3.5 h-3.5" />
@@ -137,14 +169,12 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
               onChange={(e) => setSelectedAssessmentId(e.target.value)}
               className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-xs"
             >
-              <option value="all">All Assessments ({assessments.filter(a => !a.professorId || a.professorId === currentProfessor.id).length})</option>
-              {assessments
-                .filter((a) => !a.professorId || a.professorId === currentProfessor.id)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.title}
-                  </option>
-                ))}
+              <option value="all">All Assessments ({profAssessments.length})</option>
+              {profAssessments.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.title}
+                </option>
+              ))}
             </select>
 
             <button
@@ -198,7 +228,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                   >
                     <td className="py-4 px-6 font-semibold text-slate-900 flex items-center space-x-3">
                       <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-sm">
-                        {sub.applicantName.split(' ').map((n) => n[0]).join('')}
+                        {sub.applicantName.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 3)}
                       </div>
                       <div>
                         <span className="font-bold text-slate-900">{sub.applicantName}</span>
@@ -207,7 +237,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                     </td>
                     <td className="py-4 px-6 text-slate-700">
                       <span className="font-semibold text-slate-800 block">{sub.university}</span>
-                      <span className="text-xs text-slate-500 block">{sub.degreeProgram} • GPA: {sub.gpa}</span>
+                      <span className="text-xs text-slate-500 block">{sub.degreeProgram} • GPA: {sub.gpa || 'N/A'}</span>
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex flex-col items-start space-y-1">
@@ -230,7 +260,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                       {getRecommendationBadge(sub.interviewRecommendation)}
                     </td>
                     <td className="py-4 px-6">
-                      {sub.integrityReport.integrityFlagged ? (
+                      {sub.integrityReport?.integrityFlagged ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300">
                           <AlertTriangle className="w-3 h-3 mr-1" /> Flagged ({sub.integrityReport.aiGeneratedProbability}% AI)
                         </span>
@@ -258,7 +288,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                               ? 'bg-rose-50 text-rose-700 border-rose-300'
                               : 'bg-slate-100 text-slate-600 border-slate-200'
                           }`}>
-                            RSVP: {sub.applicantResponseToInterview} {sub.applicantResponseToInterview === 'Accepted' ? '✓' : '✗'}
+                            RSVP: {sub.applicantResponseToInterview} {sub.applicantResponseToInterview === 'Accepted' ? '✓' : sub.applicantResponseToInterview === 'Declined' ? '✗' : ''}
                           </span>
                         )}
                       </div>
@@ -289,6 +319,10 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const menuHeight = 170;
+                              const top = rect.bottom + menuHeight > window.innerHeight ? rect.top - menuHeight - 4 : rect.bottom + 4;
+                              setMenuPosition({ top, right: window.innerWidth - rect.right });
                               setActiveMenuId(activeMenuId === sub.id ? null : sub.id);
                             }}
                             className="p-1.5 rounded-md hover:bg-slate-200 text-slate-600 transition-colors border border-transparent hover:border-slate-300"
@@ -296,8 +330,12 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                           >
                             <MoreVertical className="w-4 h-4" />
                           </button>
-                          {activeMenuId === sub.id && (
-                            <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 text-left">
+                          {activeMenuId === sub.id && menuPosition && (
+                            <div
+                              className="fixed w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 text-left"
+                              style={{ top: menuPosition.top, right: menuPosition.right }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <button
                                 onClick={() => {
                                   setActiveMenuId(null);
@@ -337,9 +375,9 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setActiveMenuId(null);
+                                    if (!window.confirm(`Permanently remove ${sub.applicantName}'s submission? This cannot be undone.`)) return;
                                     onRemoveSubmission(sub.id);
-                                    setNotification(`Removed ${sub.applicantName} from applicant pool.`);
-                                    setTimeout(() => setNotification(null), 3500);
+                                    showNotification(`Removed ${sub.applicantName} from applicant pool.`);
                                   }}
                                   className="w-full px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center space-x-2 font-medium border-t border-slate-100"
                                 >
@@ -456,6 +494,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                     const chosenLink = meetingLink || 'https://meet.google.com/faculty-research-interview';
                     const updated = {
                       ...schedulingSub,
+                      status: 'reviewed' as const,
                       professorDecision: 'Interview' as const,
                       interviewDate: chosenDate,
                       interviewTime: meetingTime,
@@ -463,8 +502,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                       meetingConfirmed: true,
                     };
                     onUpdateSubmission(updated);
-                    setNotification(`Status set to Accepted! Interview scheduled for ${schedulingSub.applicantName} on ${chosenDate} at ${meetingTime} with video link.`);
-                    setTimeout(() => setNotification(null), 5000);
+                    showNotification(`Status set to Accepted! Interview scheduled for ${schedulingSub.applicantName} on ${chosenDate} at ${meetingTime} with video link.`, 5000);
                   }
                   setSchedulingSub(null);
                 }}
@@ -485,7 +523,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
             <div className="bg-gradient-to-r from-indigo-900 to-slate-900 p-6 text-white flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 rounded-full bg-indigo-500/30 border-2 border-indigo-400 text-white font-bold flex items-center justify-center text-lg">
-                  {profileModalSub.applicantName.split(' ').map((n) => n[0]).join('')}
+                  {profileModalSub.applicantName.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 3)}
                 </div>
                 <div>
                   <h3 className="text-lg font-bold">{profileModalSub.applicantName}</h3>
@@ -538,7 +576,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Topic Proficiency Breakdown</h4>
                 <div className="space-y-2">
-                  {Object.entries(profileModalSub.topicBreakdown || {}).map(([topic, data]: [string, any]) => (
+                  {Object.entries(profileModalSub.topicBreakdown || {}).filter(([, data]: [string, any]) => data && data.total > 0).map(([topic, data]: [string, any]) => (
                     <div key={topic} className="flex items-center justify-between text-xs bg-slate-50 px-3 py-2 rounded border border-slate-200">
                       <span className="font-semibold text-slate-700">{topic}</span>
                       <span className="font-bold text-slate-900">{data.scored} / {data.total} pts ({Math.round(data.percentage)}%)</span>

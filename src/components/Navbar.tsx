@@ -6,29 +6,18 @@ import {
   Database, 
   Users, 
   BarChart3, 
-  Settings, 
-  UserCheck, 
-  Sparkles, 
   ShieldCheck, 
-  PlayCircle,
   User,
   Send,
   LogOut
 } from 'lucide-react';
-import { ActiveRole, ProfessorProfile, UserAccount } from '../types';
+import { ProfessorProfile, UserAccount } from '../types';
 
 interface NavbarProps {
   currentProfessor: ProfessorProfile;
-  allProfessors?: ProfessorProfile[];
-  professors?: ProfessorProfile[];
-  onSelectProfessor?: (id: string) => void;
-  setCurrentProfessor?: (prof: ProfessorProfile) => void;
   activeTab: string;
-  onSelectTab?: (tab: any) => void;
-  setActiveTab?: (tab: any) => void;
-  onOpenCandidatePortal?: () => void;
-  activeRole?: ActiveRole;
-  setActiveRole?: (role: ActiveRole) => void;
+  onSelectTab: (tab: any) => void;
+  onGoHome: () => void;
   currentUserAccount?: UserAccount | null;
   onOpenAuthModal?: () => void;
   onOpenAssignModal?: () => void;
@@ -36,40 +25,13 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentProfessor,
-  allProfessors,
-  professors,
-  onSelectProfessor,
-  setCurrentProfessor,
   activeTab,
   onSelectTab,
-  setActiveTab,
-  onOpenCandidatePortal,
-  activeRole = 'professor',
-  setActiveRole,
+  onGoHome,
   currentUserAccount,
   onOpenAuthModal,
   onOpenAssignModal,
 }) => {
-
-  const handleTabChange = (tab: string) => {
-    if (onSelectTab) onSelectTab(tab);
-    else if (setActiveTab) setActiveTab(tab);
-  };
-
-  const profList = allProfessors || professors || [];
-
-  const handleProfChange = (id: string) => {
-    if (onSelectProfessor) onSelectProfessor(id);
-    else if (setCurrentProfessor) {
-      const prof = profList.find((p) => p.id === id);
-      if (prof) setCurrentProfessor(prof);
-    }
-  };
-
-  const handleOpenPortal = () => {
-    if (onOpenCandidatePortal) onOpenCandidatePortal();
-    else if (setActiveRole) setActiveRole('applicant-portal');
-  };
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -85,16 +47,13 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-2">
           {/* Logo */}
-          <div className="flex items-center space-x-2.5 cursor-pointer shrink-0" onClick={() => {
-            if (setActiveRole) setActiveRole('landing');
-            else handleTabChange('dashboard');
-          }}>
+          <div className="flex items-center space-x-2.5 cursor-pointer shrink-0" onClick={() => onSelectTab('dashboard')}>
             <div className="w-8 h-8 md:w-9 md:h-9 rounded-md bg-indigo-600 flex items-center justify-center shadow-sm shadow-indigo-500/20 text-white font-bold shrink-0">
               <GraduationCap className="w-4 h-4 md:w-5 md:h-5 text-white" />
             </div>
             <div className="shrink-0">
               <span className="font-semibold text-base md:text-lg tracking-tight text-white block leading-tight">
-                ScholarScreen AI
+                Sifted
               </span>
               <span className="hidden xl:block text-[9px] md:text-[10px] uppercase tracking-wider text-indigo-400 font-semibold leading-tight">
                 Graduate Admissions
@@ -102,34 +61,32 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Professor Tabs (only visible in professor role) */}
-          {activeRole === 'professor' && (
-            <nav className="hidden lg:flex items-center space-x-1 shrink">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleTabChange(item.id)}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap ${
-                      isActive
-                        ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          )}
+          {/* Professor Tabs */}
+          <nav className="hidden lg:flex items-center space-x-1 shrink">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => onSelectTab(item.id)}
+                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Icon className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
           {/* Role & Profile Switcher */}
           <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
             {/* Assign Test button for professors */}
-            {activeRole === 'professor' && onOpenAssignModal && (
+            {onOpenAssignModal && (
               <button
                 onClick={onOpenAssignModal}
                 className="hidden sm:flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
@@ -139,60 +96,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Switch to Portal Modes button group */}
-            <div className="bg-slate-800/80 p-1 rounded-md border border-slate-700/60 flex items-center space-x-1 shrink-0">
-              <button
-                onClick={() => {
-                  if (setActiveRole) setActiveRole('landing');
-                }}
-                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
-                  activeRole === 'landing'
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Return to Landing Page"
-              >
-                <span>Home</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (setActiveRole) setActiveRole('professor');
-                  else handleTabChange('dashboard');
-                }}
-                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
-                  activeRole === 'professor'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">Professor</span>
-              </button>
-              <button
-                onClick={handleOpenPortal}
-                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
-                  activeRole === 'applicant-portal'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <PlayCircle className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">Student</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (setActiveRole) setActiveRole('admin-portal');
-                }}
-                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
-                  activeRole === 'admin-portal'
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">Admin</span>
-              </button>
-            </div>
+            <button
+              onClick={onGoHome}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors whitespace-nowrap"
+              title="Sign out and return to the home page"
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
 
             {/* Account Switcher Badge */}
             <div className="flex items-center space-x-2 border-l border-slate-800 pl-2 sm:pl-3 shrink-0">
@@ -222,26 +133,24 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Mobile navigation bar for small screens */}
-      {activeRole === 'professor' && (
-        <div className="lg:hidden flex overflow-x-auto border-t border-slate-800 px-4 py-2 space-x-2 bg-[#0F172A]">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => handleTabChange(item.id)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${
-                  isActive ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20' : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div className="lg:hidden flex overflow-x-auto border-t border-slate-800 px-4 py-2 space-x-2 bg-[#0F172A]">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onSelectTab(item.id)}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${
+                isActive ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20' : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </header>
   );
 };

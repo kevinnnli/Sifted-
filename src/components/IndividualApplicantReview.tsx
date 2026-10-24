@@ -25,9 +25,16 @@ import {
   Link,
   ExternalLink
 } from 'lucide-react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
-import { ApplicantSubmission, Question, ProfessorDecision, InterviewRecommendation } from '../types';
-import { getHireabilityBadgeStyle, getHireabilityShortText } from '../utils/grading';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
+import { ApplicantSubmission, Question, ProfessorDecision, InterviewRecommendation, QuestionResponseItem } from '../types';
+import {
+  applyScoreOverrides,
+  getEffectiveScore,
+  getHireabilityBadgeStyle,
+  getHireabilityLevel,
+  getHireabilityShortText,
+  isEmptyOrTrivialResponse,
+} from '../utils/grading';
 
 interface IndividualApplicantReviewProps {
   submission: ApplicantSubmission;
@@ -52,8 +59,24 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
   const [aiBriefing, setAiBriefing] = useState<string | null>(null);
   const [generatingBriefing, setGeneratingBriefing] = useState<boolean>(false);
 
-  // Manual score overrides
+  // Manual score overrides (unsaved edits; saved overrides live on the submission's responses)
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const hasUnsavedOverrides = Object.entries(overrides).some(
+    ([qid, val]) => submission.responses[qid] && val !== getEffectiveScore(submission.responses[qid])
+  );
+
+  const handleSaveOverrides = () => {
+    const rescored = applyScoreOverrides(submission, overrides, questions);
+    const responseList = Object.values(rescored.responses) as QuestionResponseItem[];
+    const emptyCount = responseList.filter((r) => isEmptyOrTrivialResponse(r.answer, questions.find((q) => q.id === r.questionId))).length;
+    onUpdateSubmission({
+      ...rescored,
+      hireabilityLevel: getHireabilityLevel(rescored.overallScore, emptyCount, responseList.length),
+      professorNotes: profNotes,
+    });
+    setOverrides({});
+    alert(`Score overrides saved. New weighted score: ${rescored.overallScore}%.`);
+  };
 
   const handleSaveDecision = (decision: ProfessorDecision) => {
     if (decision === 'Interview') {
@@ -67,6 +90,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
     setProfDecision(decision);
     const updated: ApplicantSubmission = {
       ...submission,
+      status: decision === 'Reject' ? 'reviewed' : 'completed',
       professorNotes: profNotes,
       professorDecision: decision,
     };
@@ -86,6 +110,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
 
     const updated: ApplicantSubmission = {
       ...submission,
+      status: 'reviewed',
       professorNotes: profNotes,
       professorDecision: 'Interview',
       interviewDate: chosenDate,
@@ -118,11 +143,14 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
     }
   };
 
-  const topicData = Object.entries(submission.topicBreakdown).map(([topic, data]) => ({
-    subject: topic,
-    score: (data as any).percentage,
-    fullMark: 100,
-  }));
+  const topicData = Object.entries(submission.topicBreakdown || {})
+    .filter(([, data]) => data && data.total > 0)
+    .map(([topic, data]) => ({
+      subject: topic,
+      score: data!.percentage,
+      fullMark: 100,
+    }));
+  const integrity = submission.integrityReport || { tabSwitchCount: 0, copyPasteAttempts: 0, aiGeneratedProbability: 0, integrityFlagged: false, notes: [] };
 
   const getRecommendationBadge = (rec: InterviewRecommendation) => {
     switch (rec) {
@@ -164,7 +192,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-start space-x-4">
           <div className="w-16 h-16 rounded-md bg-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-sm shrink-0">
-            {submission.applicantName.split(' ').map((n) => n[0]).join('')}
+            {submission.applicantName.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 3)}
           </div>
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -221,7 +249,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                   ? 'bg-rose-50 text-rose-800 border-rose-300'
                   : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
-                Candidate RSVP: {submission.applicantResponseToInterview} {submission.applicantResponseToInterview === 'Accepted' ? '✓' : '✗'}
+                Candidate RSVP: {submission.applicantResponseToInterview} {submission.applicantResponseToInterview === 'Accepted' ? '✓' : submission.applicantResponseToInterview === 'Declined' ? '✗' : ''}
               </span>
             )}
           </div>
@@ -474,21 +502,21 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
 
             {/* Quick Integrity Summary Widget */}
             <div className={`p-5 rounded-lg border ${
-              submission.integrityReport.integrityFlagged ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-300'
+              integrity.integrityFlagged ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-300'
             }`}>
               <div className="flex items-center space-x-2 mb-2">
-                {submission.integrityReport.integrityFlagged ? (
+                {integrity.integrityFlagged ? (
                   <AlertTriangle className="w-5 h-5 text-rose-600" />
                 ) : (
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 )}
                 <h4 className="font-bold text-sm text-slate-900">
-                  {submission.integrityReport.integrityFlagged ? 'Integrity Flagged' : 'Integrity Verified Clean'}
+                  {integrity.integrityFlagged ? 'Integrity Flagged' : 'Integrity Verified Clean'}
                 </h4>
               </div>
               <p className="text-xs text-slate-700 font-medium">
-                AI-Generated probability: <span className="font-bold">{submission.integrityReport.aiGeneratedProbability}%</span>.
-                Tab switches: <span className="font-bold">{submission.integrityReport.tabSwitchCount}</span>.
+                AI-Generated probability: <span className="font-bold">{integrity.aiGeneratedProbability}%</span>.
+                Tab switches: <span className="font-bold">{integrity.tabSwitchCount}</span>.
               </p>
               <button
                 onClick={() => setActiveTab('integrity')}
@@ -511,9 +539,27 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                 Review candidate answers against professor rubrics. You can manually override AI scores if desired.
               </p>
             </div>
-            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 uppercase tracking-wider">
-              {Object.keys(submission.responses).length} Questions Evaluated
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 uppercase tracking-wider">
+                {Object.keys(submission.responses).length} Questions Evaluated
+              </span>
+              {hasUnsavedOverrides && (
+                <>
+                  <button
+                    onClick={() => setOverrides({})}
+                    className="text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-md border border-slate-300"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    onClick={handleSaveOverrides}
+                    className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-md shadow-sm"
+                  >
+                    Save Score Overrides
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -521,7 +567,9 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               const question = questions.find((q) => q.id === resp.questionId);
               if (!question) return null;
 
-              const currentScore = overrides[resp.questionId] !== undefined ? overrides[resp.questionId] : resp.aiScore;
+              const savedScore = getEffectiveScore(resp);
+              const currentScore = overrides[resp.questionId] !== undefined ? overrides[resp.questionId] : savedScore;
+              const isOverridden = overrides[resp.questionId] !== undefined ? currentScore !== resp.aiScore : resp.professorOverride;
 
               return (
                 <div key={resp.questionId} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
@@ -548,7 +596,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                             max={resp.maxScore}
                             value={currentScore}
                             onChange={(e) => {
-                              const val = Number(e.target.value);
+                              const val = Math.max(0, Math.min(resp.maxScore, Number(e.target.value) || 0));
                               setOverrides({ ...overrides, [resp.questionId]: val });
                             }}
                             className="w-12 bg-white text-slate-900 text-center font-bold text-indigo-600 rounded px-1 py-0.5 border border-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -560,11 +608,20 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                             Weighted: <span className="text-indigo-600 font-bold">{Math.round(currentScore * (resp.difficultyWeight || 1.5) * 10) / 10}</span> / {resp.maxWeightedScore} pts
                           </span>
                         )}
+                        {isOverridden && (
+                          <span className="text-[10px] text-amber-700 font-bold">
+                            Professor override (AI: {resp.aiScore})
+                          </span>
+                        )}
                       </div>
                       <span className={`px-2.5 py-1 rounded-md text-xs font-bold shrink-0 ${
-                        resp.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                        currentScore >= resp.maxScore
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : currentScore > 0
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-rose-100 text-rose-800'
                       }`}>
-                        {resp.isCorrect ? '✓ Correct' : '✕ 0 Pts / Incorrect'}
+                        {currentScore >= resp.maxScore ? '✓ Full Credit' : currentScore > 0 ? '◐ Partial Credit' : '✕ 0 Pts'}
                       </span>
                     </div>
                   </div>
@@ -583,13 +640,22 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                       <span className="font-semibold text-indigo-900 uppercase tracking-wider text-[10px] block mb-1">
                         Candidate's Submitted Response:
                       </span>
-                      {question.type === 'programming' ? (
+                      {!String(resp.answer ?? '').trim() ? (
+                        <div className="bg-slate-50 p-4 rounded-md border border-dashed border-slate-300 text-slate-500 italic">
+                          No answer submitted.
+                        </div>
+                      ) : question.type === 'programming' ? (
                         <pre className="bg-[#0F172A] text-emerald-400 font-mono p-4 rounded-md border border-slate-700 overflow-x-auto text-[11px] leading-relaxed">
                           {resp.answer}
                         </pre>
                       ) : (
-                        <div className="bg-indigo-50/50 p-4 rounded-md border border-indigo-200 text-slate-900 font-medium leading-relaxed">
-                          {resp.answer}
+                        <div className="bg-indigo-50/50 p-4 rounded-md border border-indigo-200 text-slate-900 font-medium leading-relaxed whitespace-pre-wrap break-words">
+                          {Array.isArray(resp.answer) ? resp.answer.join(', ') : String(resp.answer)}
+                          {question.type === 'multiple-choice' && question.correctAnswers && (
+                            <span className="block mt-2 text-[11px] font-semibold text-slate-500">
+                              Correct answer: {question.correctAnswers.join(', ')}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -600,7 +666,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                           Professor Rubric / Model Answer:
                         </span>
                         <div className="bg-amber-50/80 p-3 rounded-md border border-amber-200 text-amber-900 font-normal italic leading-relaxed">
-                          {question.rubric || question.sampleAnswer}
+                          {question.rubric || question.sampleAnswer || 'No rubric provided.'}
                         </div>
                       </div>
 
@@ -641,7 +707,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               <div className="p-4 rounded-md bg-slate-50 border border-slate-200">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Browser Tab Switches</span>
                 <span className="text-2xl font-bold text-slate-900 mt-1 block">
-                  {submission.integrityReport.tabSwitchCount} times
+                  {integrity.tabSwitchCount} times
                 </span>
                 <span className="text-[11px] text-slate-500 mt-0.5 block font-medium">Focus lost during assessment</span>
               </div>
@@ -649,19 +715,19 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               <div className="p-4 rounded-md bg-slate-50 border border-slate-200">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Bulk Clipboard Paste Events</span>
                 <span className="text-2xl font-bold text-slate-900 mt-1 block">
-                  {submission.integrityReport.copyPasteAttempts} events
+                  {integrity.copyPasteAttempts} events
                 </span>
                 <span className="text-[11px] text-slate-500 mt-0.5 block font-medium">Large multi-line insertions</span>
               </div>
 
               <div className={`p-4 rounded-md border ${
-                submission.integrityReport.aiGeneratedProbability > 50 ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-300'
+                integrity.aiGeneratedProbability > 50 ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-300'
               }`}>
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">AI-Generated Probability</span>
                 <span className={`text-2xl font-bold mt-1 block ${
-                  submission.integrityReport.aiGeneratedProbability > 50 ? 'text-rose-700' : 'text-emerald-700'
+                  integrity.aiGeneratedProbability > 50 ? 'text-rose-700' : 'text-emerald-700'
                 }`}>
-                  {submission.integrityReport.aiGeneratedProbability}%
+                  {integrity.aiGeneratedProbability}%
                 </span>
                 <span className="text-[11px] text-slate-600 mt-0.5 block font-medium">Gemini synthetic text analysis</span>
               </div>
@@ -670,7 +736,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
             <div className="space-y-2 pt-2">
               <h4 className="font-semibold text-xs text-slate-800 uppercase tracking-wider">Detailed Integrity Logs & Flags</h4>
               <ul className="space-y-2">
-                {submission.integrityReport.notes.map((note, i) => (
+                {(integrity.notes || []).map((note, i) => (
                   <li
                     key={i}
                     className={`p-3 rounded-md border text-xs font-medium flex items-center space-x-2 ${

@@ -3,8 +3,23 @@ import {
   QuestionResponseItem, 
   HireabilityLevel, 
   InterviewRecommendation, 
-  TopicCategory 
+  TopicCategory,
+  ApplicantSubmission,
 } from '../types';
+
+export const HIREABILITY_LEVELS: HireabilityLevel[] = [
+  'Tier 1: Direct Admit / Top Fellow',
+  'Tier 2: Strong Interview Contender',
+  'Tier 3: Conditional / Needs Review',
+  'Tier 4: Does Not Meet Technical Bar',
+];
+
+export const INTERVIEW_RECOMMENDATIONS: InterviewRecommendation[] = [
+  'Strongly Recommend Interview',
+  'Recommend Interview',
+  'Borderline',
+  'Do Not Recommend',
+];
 
 /**
  * Maps difficulty level string to a point multiplier weight.
@@ -39,11 +54,14 @@ export function isEmptyOrTrivialResponse(answer: any, question?: Question): bool
   const str = String(answer).trim();
   if (!str) return true;
 
+  // A multiple-choice selection is never "trivial" content: an option like "No" is a real answer
+  if (question?.type === 'multiple-choice') return false;
+
   // Check for common trivial placeholders
   const lower = str.toLowerCase();
   const trivialStrings = ['na', 'n/a', 'none', 'nothing', 'test', 'no answer', 'empty', 'idk', '.', '..', '...', '-', 'abc'];
   if (trivialStrings.includes(lower)) return true;
-  if (str.length < 3 && !/^\d+$/.test(str)) return true;
+  if (str.length < 3 && !/^-?\d+(\.\d+)?$/.test(str)) return true;
 
   // For programming questions, check against code template or extreme brevity
   if (question?.type === 'programming') {
@@ -61,6 +79,41 @@ export function isEmptyOrTrivialResponse(answer: any, question?: Question): bool
   }
 
   return false;
+}
+
+const STOPWORDS = new Set([
+  'about', 'above', 'after', 'again', 'against', 'also', 'among', 'answer', 'answers', 'applicant', 'applicants',
+  'approach', 'based', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'candidate', 'candidates',
+  'clear', 'clearly', 'correct', 'correctly', 'could', 'crucially', 'demonstrate', 'describe', 'detailed', 'does',
+  'doing', 'down', 'during', 'each', 'excellent', 'explain', 'explains', 'from', 'further', 'good', 'have', 'having',
+  'here', 'into', 'just', 'like', 'mention', 'more', 'most', 'must', 'need', 'only', 'other', 'over', 'propose',
+  'rather', 'same', 'should', 'show', 'since', 'some', 'state', 'states', 'strong', 'such', 'than', 'that', 'their',
+  'them', 'then', 'there', 'these', 'they', 'this', 'those', 'through', 'under', 'until', 'using', 'valid', 'very',
+  'well', 'were', 'what', 'when', 'where', 'which', 'while', 'will', 'with', 'within', 'without', 'would', 'your',
+]);
+
+function extractConcepts(text: string): Set<string> {
+  const concepts = new Set<string>();
+  (text.toLowerCase().match(/[\p{L}\p{N}.]+/gu) || []).forEach((raw) => {
+    const token = raw.replace(/^\.+|\.+$/g, '');
+    const isNumber = /^-?\d+(\.\d+)?$/.test(token);
+    if (isNumber ? token.replace('-', '').length < 2 : token.length < 4 || STOPWORDS.has(token)) return;
+    concepts.add(!isNumber && token.length > 4 && token.endsWith('s') ? token.slice(0, -1) : token);
+  });
+  return concepts;
+}
+
+/**
+ * Counts how many key concepts of the reference text (rubric / model answer) appear in a response.
+ * Returns null when there is no reference text to compare against.
+ */
+export function getConceptCoverage(response: string, reference: string) {
+  const expected = [...extractConcepts(reference)];
+  if (expected.length === 0) return null;
+  const answerConcepts = extractConcepts(response);
+  const matched = expected.filter((c) => answerConcepts.has(c)).length;
+  // Long rubrics shouldn't demand every word: cap the expected concept count
+  return { matched: Math.min(matched, 15), expected: Math.min(expected.length, 15) };
 }
 
 /**
@@ -101,38 +154,48 @@ export function evaluateQuestionResponse(
   let confidence = 95;
 
   if (question.type === 'multiple-choice') {
-    isCorrect = Boolean(question.correctAnswers?.includes(responseVal));
+    const selected = Array.isArray(responseVal) ? responseVal : [responseVal];
+    const correct = question.correctAnswers || [];
+    isCorrect = correct.length > 0 && selected.length > 0 && selected.every((s) => correct.includes(s));
     rawScore = isCorrect ? maxScore : 0;
     feedback = isCorrect
       ? `Correct selection (+${maxScore} pts · ${multiplier}x difficulty multiplier).`
       : `Incorrect option selected (0/${maxScore} pts).`;
-  } else if (question.type === 'programming') {
-    // Check code structure and length heuristic
-    const str = String(responseVal).trim();
-    const hasLogic = str.includes('return') || str.includes('for') || str.includes('while') || str.includes('if') || str.includes('function') || str.includes('def') || str.includes('class') || str.length > 80;
-    if (!hasLogic && str.length < 50) {
-      isCorrect = false;
-      rawScore = Math.round(maxScore * 0.3);
-      feedback = `Partial implementation (${rawScore}/${maxScore} pts). Code lacks core control flow or complete algorithmic logic.`;
-      confidence = 88;
-    } else {
-      isCorrect = true;
-      rawScore = maxScore;
-      feedback = `Solid algorithmic execution (+${maxScore} pts · ${multiplier}x difficulty weight). Clean code structure and asymptotic complexity.`;
-    }
   } else {
-    // Short answer, long form essay, math, research
+    // Short answer, essay, math, research and programming have no exact answer key, so the
+    // automated score is provisional: it measures how many key concepts from the professor's
+    // rubric / model answer appear in the response. AI grading or the professor finalizes it.
     const str = String(responseVal).trim();
-    if (str.length < 30) {
-      isCorrect = false;
-      rawScore = Math.round(maxScore * 0.4);
-      feedback = `Brief response (${rawScore}/${maxScore} pts). Needs deeper mathematical derivation or explanation of theoretical bounds.`;
-      confidence = 85;
+    const reference = [question.rubric, question.sampleAnswer, question.symbolicAnswer].filter(Boolean).join(' ');
+    const coverage = getConceptCoverage(str, reference);
+    confidence = 60;
+
+    if (question.type === 'programming') {
+      // Code is not executed in the browser, so award a provisional score for a structurally complete
+      // implementation plus a bonus for addressing the rubric's key points
+      const hasLogic = /\b(return|for|while|if|def|function|class)\b/.test(str);
+      if (!hasLogic && str.length < 50) {
+        rawScore = Math.round(maxScore * 0.2);
+        feedback = `Provisional: incomplete implementation (${rawScore}/${maxScore} pts). Code lacks core control flow or algorithmic logic.`;
+      } else {
+        const ratio = coverage ? Math.min(1, coverage.matched / Math.max(1, coverage.expected * 0.5)) : 0.5;
+        rawScore = Math.round(maxScore * (0.5 + 0.5 * ratio));
+        feedback = `Provisional automated score (${rawScore}/${maxScore} pts): implementation is structurally complete${coverage ? ` and addresses ${coverage.matched} of ${coverage.expected} rubric concepts` : ''}. Test cases are not executed automatically — professor should verify correctness.`;
+      }
+      confidence = 50;
+    } else if (coverage === null) {
+      // No rubric or model answer to compare against: needs manual grading
+      rawScore = Math.round(maxScore * (str.length < 30 ? 0.3 : 0.5));
+      confidence = 30;
+      feedback = `Provisional placeholder (${rawScore}/${maxScore} pts). No rubric or model answer is defined for this question, so it requires manual grading by the professor.`;
     } else {
-      isCorrect = true;
-      rawScore = maxScore;
-      feedback = `Comprehensive research analysis (+${maxScore} pts · ${multiplier}x difficulty weight). Clear theoretical trade-offs and domain terminology.`;
+      const ratio = Math.min(1, coverage.matched / Math.max(1, coverage.expected * 0.6));
+      let fraction = 0.1 + 0.9 * ratio;
+      if (str.length < 30) fraction = Math.min(fraction, 0.4);
+      rawScore = Math.round(maxScore * fraction);
+      feedback = `Provisional automated score (${rawScore}/${maxScore} pts): response covers ${coverage.matched} of ${coverage.expected} key concepts from the rubric/model answer. Professor review recommended.`;
     }
+    isCorrect = rawScore >= maxScore * 0.7;
   }
 
   const weightedScore = Math.round(rawScore * multiplier * 10) / 10;
@@ -207,14 +270,8 @@ export function calculateSubmissionGrading(
   let maxTotalWeightedScore = 0;
   let emptyCount = 0;
 
-  const topicTotals: Record<TopicCategory, { scored: number; total: number; percentage: number }> = {
-    'Machine Learning': { scored: 0, total: 0, percentage: 0 },
-    'Algorithms': { scored: 0, total: 0, percentage: 0 },
-    'Statistics & Prob': { scored: 0, total: 0, percentage: 0 },
-    'Linear Algebra': { scored: 0, total: 0, percentage: 0 },
-    'Research Methods': { scored: 0, total: 0, percentage: 0 },
-    'Systems & Math': { scored: 0, total: 0, percentage: 0 },
-  };
+  // Only topics covered by the assessment get an entry, so untested topics don't show up as 100%
+  const topicTotals: Partial<Record<TopicCategory, { scored: number; total: number; percentage: number }>> = {};
 
   questions.forEach((q) => {
     const rawResp = responsesMap[q.id] || { answer: '', timeSpentSeconds: 120 };
@@ -233,16 +290,11 @@ export function calculateSubmissionGrading(
     if (!topicTotals[topic]) {
       topicTotals[topic] = { scored: 0, total: 0, percentage: 0 };
     }
-    topicTotals[topic].scored += evalItem.weightedScore || 0;
-    topicTotals[topic].total += evalItem.maxWeightedScore || (q.points * 1.5);
+    topicTotals[topic]!.scored += evalItem.weightedScore || 0;
+    topicTotals[topic]!.total += evalItem.maxWeightedScore || (q.points * 1.5);
   });
 
-  // Calculate percentage for each topic
-  Object.keys(topicTotals).forEach((t) => {
-    const key = t as TopicCategory;
-    const item = topicTotals[key];
-    item.percentage = item.total > 0 ? Math.round((item.scored / item.total) * 100) : 100;
-  });
+  finalizeTopicPercentages(topicTotals);
 
   const overallScore = maxTotalWeightedScore > 0
     ? Math.round((totalWeightedScore / maxTotalWeightedScore) * 100)
@@ -265,9 +317,10 @@ export function calculateSubmissionGrading(
     recommendationExplanation += 'Did not meet the graduate technical screening threshold due to low scores or missing/empty answers.';
   }
 
+  const strongestTopic = Object.entries(topicTotals).sort((a, b) => b[1]!.percentage - a[1]!.percentage)[0]?.[0];
   const aiSummary = emptyCount > 0
     ? `Flagged: ${emptyCount} empty or boilerplate answer(s). Weighted Score: ${overallScore}% (${hireabilityLevel}).`
-    : `Weighted Score: ${overallScore}% (${hireabilityLevel}). Strongest in ${Object.entries(topicTotals).sort((a, b) => b[1].percentage - a[1].percentage)[0]?.[0] || 'Core CS'}.`;
+    : `Weighted Score: ${overallScore}% (${hireabilityLevel}).${strongestTopic ? ` Strongest in ${strongestTopic}.` : ''}`;
 
   return {
     evaluatedResponses,
@@ -281,6 +334,87 @@ export function calculateSubmissionGrading(
     topicBreakdown: topicTotals,
     emptyCount,
   };
+}
+
+function finalizeTopicPercentages(
+  topicTotals: Partial<Record<TopicCategory, { scored: number; total: number; percentage: number }>>
+) {
+  Object.values(topicTotals).forEach((item) => {
+    if (!item) return;
+    item.scored = Math.round(item.scored * 10) / 10;
+    item.total = Math.round(item.total * 10) / 10;
+    item.percentage = item.total > 0 ? Math.round((item.scored / item.total) * 100) : 0;
+  });
+}
+
+/**
+ * The score that counts for a response: the professor's manual override when present, else the AI score.
+ */
+export function getEffectiveScore(resp: QuestionResponseItem): number {
+  return resp.professorOverride && typeof resp.manualScore === 'number' ? resp.manualScore : resp.aiScore;
+}
+
+/**
+ * Applies professor manual score overrides to a submission and recomputes the weighted totals,
+ * overall percentage and topic breakdown so every view stays consistent with the overrides.
+ */
+export function applyScoreOverrides(
+  submission: ApplicantSubmission,
+  overrides: Record<string, number>,
+  questions: Question[]
+): ApplicantSubmission {
+  const responses: Record<string, QuestionResponseItem> = {};
+  const topicTotals: Partial<Record<TopicCategory, { scored: number; total: number; percentage: number }>> = {};
+  let totalWeighted = 0;
+  let maxTotalWeighted = 0;
+
+  Object.entries(submission.responses).forEach(([qid, resp]) => {
+    const question = questions.find((q) => q.id === resp.questionId || q.id === qid);
+    const weight = resp.difficultyWeight || getDifficultyMultiplier(question?.difficulty);
+    let updated: QuestionResponseItem = { ...resp };
+    if (overrides[qid] !== undefined) {
+      const clamped = Math.max(0, Math.min(resp.maxScore, overrides[qid]));
+      updated = {
+        ...updated,
+        manualScore: clamped,
+        professorOverride: clamped !== resp.aiScore,
+        isCorrect: clamped >= resp.maxScore * 0.7,
+      };
+    }
+    const score = getEffectiveScore(updated);
+    const maxWeighted = resp.maxWeightedScore ?? Math.round(resp.maxScore * weight * 10) / 10;
+    updated.weightedScore = Math.round(score * weight * 10) / 10;
+    updated.maxWeightedScore = maxWeighted;
+    responses[qid] = updated;
+
+    totalWeighted += updated.weightedScore;
+    maxTotalWeighted += maxWeighted;
+    const topic = question?.topic || 'Machine Learning';
+    if (!topicTotals[topic]) topicTotals[topic] = { scored: 0, total: 0, percentage: 0 };
+    topicTotals[topic]!.scored += updated.weightedScore;
+    topicTotals[topic]!.total += maxWeighted;
+  });
+
+  finalizeTopicPercentages(topicTotals);
+  const overallScore = maxTotalWeighted > 0 ? Math.round((totalWeighted / maxTotalWeighted) * 100) : 0;
+
+  return {
+    ...submission,
+    responses,
+    totalWeightedScore: Math.round(totalWeighted * 10) / 10,
+    maxTotalWeightedScore: Math.round(maxTotalWeighted * 10) / 10,
+    overallScore,
+    topicBreakdown: topicTotals,
+  };
+}
+
+/**
+ * AI-generated probability (%) above which a session is flagged, per the professor's sensitivity setting.
+ */
+export function getAiFlagThreshold(sensitivity?: 'high' | 'medium' | 'low'): number {
+  if (sensitivity === 'low') return 85;
+  if (sensitivity === 'high') return 35;
+  return 50;
 }
 
 /**
