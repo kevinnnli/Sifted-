@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/server.cjs",
+    "build:vercel": "vite build && node scripts/build-vercel.mjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

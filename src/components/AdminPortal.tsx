@@ -254,6 +254,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSign
           <StatCard label="Submissions" value={overview.stats.submissions} hint={`${overview.stats.admins} administrator account(s)`} icon={<ShieldCheck className="w-6 h-6" />} tone="purple" />
         </div>
 
+        {overview.storage === 'temporary' && (
+          <div className="bg-rose-500/10 border border-rose-500/40 text-rose-200 p-4 rounded-xl flex items-start space-x-3 text-sm">
+            <AlertCircle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
+            <span>
+              <strong className="text-white">Data is not being saved permanently.</strong> This deployment has no database connected, so accounts and results
+              are lost whenever the server restarts. On Vercel, add an Upstash Redis store to the project (Storage tab) and redeploy.
+            </span>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3 text-[11px] font-semibold">
           <StatusPill ok={overview.studentVerificationRequired} label={overview.studentVerificationRequired ? 'New students need your verification before they see tests' : 'Students are verified automatically (STUDENT_VERIFICATION=auto)'} />
           <StatusPill ok={overview.aiConfigured} label={overview.aiConfigured ? 'AI grading & generation configured' : 'AI not configured (GEMINI_API_KEY missing) — deterministic grading only'} />

@@ -20,6 +20,16 @@ View your app in AI Studio: https://ai.studio/apps/46e38ab8-3fb3-4373-9cd0-20eba
 
 To try the app with sample data, also set `SEED_DEMO_DATA=true` and `DEMO_PASSWORD=<8+ characters>` before the first run. Every sample account (for example `evance@cs.university.edu` or `alex.chen@stanford.edu`) then signs in with that password.
 
+## Deploy to Vercel
+
+The repository includes `vercel.json`, so import it into Vercel as-is (no framework preset or output directory needed). Then:
+
+1. **Add a database.** Vercel's servers don't keep files, so Sifted stores its data in Redis. In your Vercel project open **Storage → Create Database → Upstash (Redis)**, create a free database and connect it to the project. This adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`) automatically.
+2. **Add your admin login.** Under **Settings → Environment Variables** add `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12+ characters), plus `GEMINI_API_KEY` if you want AI features.
+3. **Redeploy** (Deployments → ⋯ → Redeploy) so the new settings take effect, then sign in with your admin email and password.
+
+Without step 1 the site still runs, but accounts and results disappear whenever Vercel restarts the server; the admin portal shows a warning while that's the case.
+
 ## Accounts and access
 
 | Role | How the account is created | What it can see |
@@ -55,5 +65,6 @@ Databases created by earlier versions had no passwords. On first start they are 
 
 - `npm run dev`: development server with hot reload
 - `npm run build` / `npm start`: production build and server
+- `npm run build:vercel`: the Vercel build (used automatically by `vercel.json`)
 - `npm run lint`: type-check
 - `npm test`: server security and isolation tests

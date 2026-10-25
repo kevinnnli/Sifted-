@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import type { RemoteStore } from './storage';
 import type { DatabaseShape, StoredUser } from './types';
 
 export const SCHEMA_VERSION = 2;
@@ -70,10 +71,29 @@ function migrate(raw: any): DatabaseShape {
  * All data lives in memory and is written to a JSON file after every change. Requests are handled
  * on a single thread and every mutation is synchronous, so there are no interleaved writes.
  * Pass `file: null` for a purely in-memory database (tests).
+ *
+ * With a remote store (serverless hosting, see Database.connect) changes are instead collected and
+ * written by flush() before each response, and refresh() picks up writes from other instances.
  */
 export class Database {
   data: DatabaseShape;
-  readonly isNew: boolean;
+  isNew: boolean;
+  private store: RemoteStore | null = null;
+  private revision = 0;
+  private dirty = false;
+  private writing: Promise<void> = Promise.resolve();
+
+  static async connect(store: RemoteStore): Promise<Database> {
+    const db = new Database(null);
+    const snapshot = await store.read();
+    if (snapshot) {
+      db.data = migrate(snapshot.data);
+      db.revision = snapshot.revision;
+      db.isNew = false;
+    }
+    db.store = store;
+    return db;
+  }
 
   constructor(private readonly file: string | null) {
     const { data, isNew } = this.load();
@@ -101,11 +121,46 @@ export class Database {
   }
 
   save() {
+    if (this.store) {
+      this.dirty = true;
+      return;
+    }
     if (!this.file) return;
     // Write to a temporary file and rename it over the real one, so a crash mid-write can't corrupt the data
     const tmp = path.join(path.dirname(this.file), `.${path.basename(this.file)}.${process.pid}.tmp`);
     fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmp, this.file);
+  }
+
+  /** Writes pending changes to the remote store; writes run one at a time, newest data wins. */
+  flush(): Promise<void> {
+    const store = this.store;
+    if (!store) return Promise.resolve();
+    const run = this.writing.then(async () => {
+      if (!this.dirty) return;
+      this.dirty = false;
+      const revision = this.revision + 1;
+      try {
+        await store.write({ revision, data: this.data });
+        this.revision = revision;
+      } catch (e) {
+        this.dirty = true;
+        throw e;
+      }
+    });
+    this.writing = run.catch(() => {});
+    return run;
+  }
+
+  /** Loads the latest data if another instance has written since this one last read or wrote. */
+  async refresh() {
+    if (!this.store || this.dirty) return;
+    if ((await this.store.readRevision()) <= this.revision) return;
+    const snapshot = await this.store.read();
+    if (snapshot && snapshot.revision > this.revision && !this.dirty) {
+      this.data = migrate(snapshot.data);
+      this.revision = snapshot.revision;
+    }
   }
 
   replaceAll(data: DatabaseShape) {

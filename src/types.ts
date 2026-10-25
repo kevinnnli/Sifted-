@@ -364,6 +364,7 @@ export interface AdminOverview {
   demoMode: boolean;
   aiConfigured: boolean;
   studentVerificationRequired: boolean;
+  storage: 'file' | 'redis' | 'temporary';
 }
 
 export interface AdminAccountDetail {

@@ -10,3 +10,4 @@ coverage/
 # Local runtime data written by the server
 database.json
 database.json.corrupt-*
+.vercel/

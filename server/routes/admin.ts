@@ -5,6 +5,7 @@ import { seedDemoData, isDemoMode } from '../bootstrap';
 import type { Database } from '../db';
 import { destroyUserSessions, hashPassword, requireRole, toPublicUser, validatePasswordStrength } from '../security';
 import { isAiConfigured } from '../services/ai';
+import { storageInfo } from '../storage';
 import type { StoredUser } from '../types';
 import { asyncHandler, badRequest, conflict, notFound, optionalHttpUrl, requireBoolean, requireEmail, requireString } from '../validation';
 import { studentVerificationRequired } from '../views';
@@ -42,6 +43,7 @@ export function adminRoutes(db: Database) {
       demoMode: isDemoMode(),
       aiConfigured: isAiConfigured(),
       studentVerificationRequired: studentVerificationRequired(),
+      storage: storageInfo.mode,
     });
   });
 
