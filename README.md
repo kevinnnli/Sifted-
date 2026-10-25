@@ -34,13 +34,25 @@ Without step 1 the site still runs, but accounts and results disappear whenever 
 
 | Role | How the account is created | What it can see |
 | --- | --- | --- |
-| Administrator | Only from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in the server configuration | Every account; can create professors, verify students, reset passwords, disable or delete accounts. Cannot sign in as another user. |
+| Administrator | Only from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in the server configuration | Every account; can create professors, verify students, reset passwords, disable or delete accounts. Can open the built-in test accounts, but never a real user's account. |
 | Professor | By the administrator, with a temporary password the professor must change at first sign-in | Only their own assessments, their own and public questions, and the candidates they invited |
 | Student | Self-registration with a university email | Only their own invitations, test attempts and decisions. Never answer keys, rubrics, other students, or professor notes. |
 
 - New students must be verified by the administrator before they can see assigned tests (set `STUDENT_VERIFICATION=auto` to skip this).
 - Tests run on the server: it holds the clock, the question order and the answer keys, saves progress as the student goes, grades on submission, and auto-submits when time (plus grace) runs out. A refresh or a lost connection resumes the same attempt.
 - Sessions use HttpOnly cookies, passwords are hashed with scrypt, sign-in is rate-limited, and every API route checks the caller's role and ownership.
+
+## Test accounts
+
+Every deployment comes with a sandbox for trying Sifted out, listed only in the admin portal under **Test Accounts**:
+
+- **Dr. Test Professor**: owns a published "Sandbox Screening Exam" with two submissions to review
+- **Riley Ready**: has the exam waiting to be taken
+- **Sam Submitted**: has submitted it and is waiting for review
+- **Ivy Interview**: has been invited to an interview and can accept or decline
+- **Nova New**: just registered and still needs verifying
+
+Each has a random password shown only to the administrator. **Open** switches your browser into that account (use **Back to admin** to return), or sign in with the email and password in another browser to use two accounts side by side. **Reset Test Data** rebuilds them from scratch; **Remove** deletes them and keeps them off. Set `SIFTED_TEST_ACCOUNTS=off` to never create them.
 
 ## Configuration
 

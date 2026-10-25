@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { Database } from '../db';
-import type { RemoteStore, Snapshot } from '../storage';
+import { StorageConflictError, type RemoteStore, type Snapshot } from '../storage';
 
 /** In-memory stand-in for Redis, shared by several Database instances like Vercel function instances. */
 function memoryStore() {
@@ -14,9 +14,12 @@ function memoryStore() {
     async read() {
       return saved ? (JSON.parse(saved) as Snapshot) : null;
     },
-    async write(snapshot) {
+    async write(snapshot, expectedRevision) {
+      const current = saved ? (JSON.parse(saved) as Snapshot).revision : 0;
+      if (current !== expectedRevision) return false;
       writes++;
       saved = JSON.stringify(snapshot);
+      return true;
     },
   };
   return { store, writes: () => writes };
@@ -71,9 +74,9 @@ describe('remote storage', () => {
     let fail = true;
     const flaky: RemoteStore = {
       ...store,
-      async write(snapshot) {
+      async write(snapshot, expectedRevision) {
         if (fail) throw new Error('network down');
-        return store.write(snapshot);
+        return store.write(snapshot, expectedRevision);
       },
     };
     const db = await Database.connect(flaky);
@@ -83,5 +86,31 @@ describe('remote storage', () => {
     fail = false;
     await db.flush();
     assert.equal((await store.read())?.revision, 1);
+  });
+
+  test('a write based on stale data is refused instead of overwriting the other instance', async () => {
+    const { store } = memoryStore();
+    const a = await Database.connect(store);
+    const b = await Database.connect(store);
+    a.data.users.push(user('from-a'));
+    a.save();
+    await a.flush();
+
+    // b hasn't refreshed, so its change is based on the old data
+    b.data.users.push(user('from-b'));
+    b.save();
+    const epoch = b.epoch;
+    await assert.rejects(b.flush(), StorageConflictError);
+    assert.equal(b.epoch, epoch + 1);
+    // b reloaded the stored data and a's change survived
+    assert.deepEqual(b.data.users.map((u) => u.id), ['from-a']);
+    assert.deepEqual(((await store.read())!.data as any).users.map((u: any) => u.id), ['from-a']);
+
+    // After the reload b can save normally again
+    b.data.users.push(user('from-b'));
+    b.save();
+    await b.flush();
+    await a.refresh();
+    assert.deepEqual(a.data.users.map((u) => u.id), ['from-a', 'from-b']);
   });
 });

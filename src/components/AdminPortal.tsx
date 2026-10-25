@@ -19,13 +19,18 @@ import {
   BadgeCheck,
   X,
   RefreshCw,
+  Copy,
+  FlaskConical,
+  LogIn,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
-import { AdminAccountDetail, AdminOverview, UserAccount } from '../types';
+import { AdminAccountDetail, AdminOverview, TestAccount, UserAccount } from '../types';
 
 interface AdminPortalProps {
   currentAccount: UserAccount;
   onSignOut: () => void;
+  // Called after the server has switched this browser into a test account
+  onOpenTestAccount: (account: UserAccount) => void;
 }
 
 type RoleFilter = 'all' | 'professor' | 'applicant' | 'admin' | 'pending';
@@ -49,7 +54,7 @@ function formatDateTime(value?: string): string {
 const inputClass =
   'w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500';
 
-export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSignOut }) => {
+export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSignOut, onOpenTestAccount }) => {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -126,6 +131,39 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSign
       flash(false, errorMessage(e));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openTestAccount = async (account: UserAccount) => {
+    setBusyId(account.id);
+    try {
+      const { user } = await api.admin.openTestAccount(account.id);
+      onOpenTestAccount(user);
+    } catch (e) {
+      flash(false, errorMessage(e));
+      setBusyId(null);
+    }
+  };
+
+  const resetTestAccounts = async () => {
+    if (!window.confirm('Reset the test accounts? All test data (exams taken, reviews, changes) is deleted and rebuilt with new passwords.')) return;
+    try {
+      await api.admin.resetTestAccounts();
+      await load();
+      flash(true, 'Test accounts reset to a fresh start.');
+    } catch (e) {
+      flash(false, errorMessage(e));
+    }
+  };
+
+  const removeTestAccounts = async () => {
+    if (!window.confirm('Remove all test accounts and their data? They will not come back until you create them again.')) return;
+    try {
+      await api.admin.removeTestAccounts();
+      await load();
+      flash(true, 'Test accounts removed.');
+    } catch (e) {
+      flash(false, errorMessage(e));
     }
   };
 
@@ -270,6 +308,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSign
           {overview.demoMode && <StatusPill ok={false} label="Demo mode is on (SEED_DEMO_DATA=true)" />}
         </div>
 
+        <TestAccountsPanel
+          accounts={overview.testAccounts}
+          enabled={overview.testAccountsEnabled}
+          busyId={busyId}
+          onOpen={openTestAccount}
+          onReset={resetTestAccounts}
+          onRemove={removeTestAccounts}
+        />
+
         <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
           <div className="p-6 border-b border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
@@ -334,6 +381,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSign
                       </td>
                       <td className="py-4 px-6">
                         <RoleBadge account={acc} />
+                        {acc.isTestAccount && (
+                          <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-fuchsia-500/10 text-fuchsia-300 border border-fuchsia-500/30 uppercase">
+                            Test
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 px-6 font-medium text-slate-300">
                         {acc.role === 'professor' ? (
@@ -403,7 +455,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentAccount, onSign
             <span className="font-bold text-slate-200 block mb-1">Your administrator account</span>
             This account is configured by the server's <code className="text-purple-300">ADMIN_EMAIL</code> and{' '}
             <code className="text-purple-300">ADMIN_PASSWORD</code> settings. To change its password, update those values and restart the server. Administrators can
-            view and manage accounts, but they cannot sign in as another user.
+            view and manage accounts, but the only accounts they can open directly are the test accounts.
           </div>
         </div>
 
@@ -504,6 +556,111 @@ const IconButton: React.FC<{ title: string; onClick: () => void; disabled?: bool
     {children}
   </button>
 );
+
+const TestAccountsPanel: React.FC<{
+  accounts: TestAccount[];
+  enabled: boolean;
+  busyId: string | null;
+  onOpen: (account: TestAccount) => void;
+  onReset: () => void;
+  onRemove: () => void;
+}> = ({ accounts, enabled, busyId, onOpen, onReset, onRemove }) => {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (value: string) => {
+    navigator.clipboard?.writeText(value).then(
+      () => {
+        setCopied(value);
+        setTimeout(() => setCopied((c) => (c === value ? null : c)), 1500);
+      },
+      () => {}
+    );
+  };
+  // Professor first, then students in the order they move through the process
+  const sorted = [...accounts].sort((a, b) => (a.role === b.role ? 0 : a.role === 'professor' ? -1 : 1));
+
+  return (
+    <div className="bg-slate-900 border border-fuchsia-500/30 rounded-2xl shadow-xl overflow-hidden">
+      <div className="p-6 border-b border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-start space-x-3">
+          <div className="w-10 h-10 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-300 flex items-center justify-center shrink-0">
+            <FlaskConical className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white">Test Accounts</h2>
+            <p className="text-xs text-slate-400 mt-0.5 max-w-2xl leading-relaxed">
+              A ready-made professor and students for trying everything out. Click <strong className="text-slate-200">Open</strong> to use an account in this
+              browser (a <em>Back to admin</em> button brings you back), or sign in with its email and password in another browser. Only you can see these
+              passwords.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={onReset}
+            className="px-3.5 py-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-bold flex items-center space-x-1.5"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>{accounts.length ? 'Reset Test Data' : 'Create Test Accounts'}</span>
+          </button>
+          {accounts.length > 0 && (
+            <button
+              onClick={onRemove}
+              className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 flex items-center space-x-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Remove</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="p-6 text-xs text-slate-500">
+          {enabled ? 'No test accounts yet.' : 'Test accounts are turned off.'} Click “Create Test Accounts” to set them up.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-6">
+          {sorted.map((acc) => (
+            <div key={acc.id} className={`bg-slate-950/60 border border-slate-800 rounded-xl p-4 flex flex-col gap-3 ${acc.disabled ? 'opacity-60' : ''}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="font-bold text-white text-sm block truncate">{acc.name}</span>
+                  <div className="mt-1">
+                    <RoleBadge account={acc} />
+                  </div>
+                </div>
+                <button
+                  onClick={() => onOpen(acc)}
+                  disabled={busyId === acc.id || acc.disabled}
+                  className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold flex items-center space-x-1.5 shrink-0"
+                  title={acc.disabled ? 'This account is disabled' : `Use Sifted as ${acc.name}`}
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>{busyId === acc.id ? 'Opening…' : 'Open'}</span>
+                </button>
+              </div>
+              {acc.testNote && <p className="text-[11px] text-slate-400 leading-relaxed">{acc.testNote}</p>}
+              <div className="space-y-1.5 text-[11px] mt-auto">
+                {[
+                  ['Email', acc.email],
+                  ['Password', acc.testPassword || '—'],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-md px-2.5 py-1.5">
+                    <span className="text-slate-500 font-semibold w-16 shrink-0">{label}</span>
+                    <code className="text-slate-200 truncate flex-1 select-all">{value}</code>
+                    <button onClick={() => copy(value)} className="text-slate-400 hover:text-white shrink-0" title={`Copy ${label.toLowerCase()}`} aria-label={`Copy ${label.toLowerCase()}`}>
+                      {copied === value ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const RoleBadge: React.FC<{ account: UserAccount }> = ({ account }) => {
   if (account.role === 'professor') {

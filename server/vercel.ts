@@ -4,8 +4,9 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { createApp } from './app';
 import { ensureEnvAdmin, isDemoMode, seedDemoData } from './bootstrap';
 import { Database } from './db';
+import { ensureTestAccounts } from './testAccounts';
 import { sweepExpiredAttempts } from './services/attempts';
-import { redisStoreFromEnv, storageInfo } from './storage';
+import { redisStoreFromEnv, StorageConflictError, storageInfo } from './storage';
 
 /**
  * Vercel Function entry point for every /api request (see scripts/build-vercel.mjs). Each function
@@ -22,19 +23,33 @@ async function init() {
   const store = redisStoreFromEnv();
   let db: Database;
   if (store) {
-    db = await Database.connect(store);
-    storageInfo.mode = 'redis';
+    // Several instances may start at once; whichever saves second starts over from the stored data
+    for (let attempt = 1; ; attempt++) {
+      db = await Database.connect(store);
+      storageInfo.mode = 'redis';
+      try {
+        await prepare(db);
+        break;
+      } catch (e) {
+        if (!(e instanceof StorageConflictError) || attempt >= 5) throw e;
+      }
+    }
   } else {
     // Vercel's disk is wiped whenever an instance is recycled: usable for a quick look only
     db = new Database(path.join(os.tmpdir(), 'sifted-database.json'));
     storageInfo.mode = 'temporary';
     console.warn('⚠️  No Redis store configured (KV_REST_API_URL / KV_REST_API_TOKEN): data will be lost when this instance restarts.');
+    await prepare(db);
   }
+  return { app: createApp(db), db };
+}
+
+async function prepare(db: Database) {
   if (isDemoMode() && db.isNew) await seedDemoData(db);
   const adminWarning = await ensureEnvAdmin(db);
   if (adminWarning) console.warn(`⚠️  ${adminWarning}`);
+  await ensureTestAccounts(db);
   await db.flush();
-  return { app: createApp(db), db };
 }
 
 function sendError(res: ServerResponse, status: number, message: string) {
@@ -71,17 +86,32 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
     await db.flush();
   } catch (e) {
-    console.error('Storage error:', e);
-    return sendError(res, 503, 'Storage is temporarily unavailable. Please try again.');
+    if (!(e instanceof StorageConflictError)) console.error('Storage error:', e);
+    return sendError(res, 503, 'The server was busy. Please try again.');
   }
 
   // Hold the response until this request's changes are stored, so the instance can't be frozen
-  // (or the client move on) before the write lands
+  // (or the client move on) before the write lands. If they couldn't be stored, answer with an
+  // error instead of the handler's response, so nobody is told a change worked when it didn't.
+  const epoch = db.epoch;
   const end = res.end.bind(res) as (...args: unknown[]) => ServerResponse;
   res.end = ((...args: unknown[]) => {
     db.flush()
-      .catch((e) => console.error('Failed to save changes:', e))
-      .finally(() => end(...args));
+      .then(
+        () => db.epoch === epoch || req.method === 'GET',
+        (e) => {
+          if (!(e instanceof StorageConflictError)) console.error('Failed to save changes:', e);
+          return false;
+        }
+      )
+      .then((saved) => {
+        if (saved || res.headersSent) return end(...args);
+        res.statusCode = 503;
+        res.removeHeader('Set-Cookie');
+        res.removeHeader('Content-Length');
+        res.setHeader('Content-Type', 'application/json');
+        end(JSON.stringify({ success: false, message: 'Your change could not be saved because the server was busy. Please try again.' }));
+      });
     return res;
   }) as typeof res.end;
 

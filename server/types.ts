@@ -11,6 +11,8 @@ import type {
 export interface StoredUser extends UserAccount {
   passwordHash?: string;
   createdAt: string;
+  // Test accounts only: the password, shown to the administrator so they can hand it out or use it
+  testPassword?: string;
 }
 
 export interface Session {
@@ -50,6 +52,7 @@ export interface DatabaseShape {
   submissions: ApplicantSubmission[];
   attempts: ExamAttempt[];
   sessions: Session[];
+  settings: { testAccounts?: 'on' | 'off' };
 }
 
 declare global {

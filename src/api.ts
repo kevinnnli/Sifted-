@@ -91,7 +91,8 @@ export const api = {
   health: () => get<{ status: string; aiConfigured: boolean }>('/api/health'),
 
   auth: {
-    me: () => get<{ user: UserAccount | null }>('/api/auth/me'),
+    me: () => get<{ user: UserAccount | null; testSession?: boolean }>('/api/auth/me'),
+    returnToAdmin: () => post<{ user: UserAccount }>('/api/auth/return-to-admin'),
     login: (email: string, password: string) => post<{ user: UserAccount }>('/api/auth/login', { email, password }),
     register: (input: SignupInput) => post<{ user: UserAccount }>('/api/auth/register', input),
     logout: () => post<{ success: boolean }>('/api/auth/logout'),
@@ -146,6 +147,9 @@ export const api = {
       patch<{ account: UserAccount }>(`/api/admin/accounts/${id(accountId)}`, changes),
     deleteAccount: (accountId: string) => del<{ success: boolean }>(`/api/admin/accounts/${id(accountId)}`),
     resetDemo: () => post<{ success: boolean }>('/api/admin/reset-demo'),
+    openTestAccount: (accountId: string) => post<{ user: UserAccount }>(`/api/admin/accounts/${id(accountId)}/sign-in-as`),
+    resetTestAccounts: () => post<{ success: boolean }>('/api/admin/test-accounts/reset'),
+    removeTestAccounts: () => del<{ success: boolean }>('/api/admin/test-accounts'),
   },
 };
 

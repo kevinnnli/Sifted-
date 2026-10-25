@@ -3,11 +3,22 @@ import { Router } from 'express';
 import type { ProfessorProfile } from '../../src/types';
 import { seedDemoData, isDemoMode } from '../bootstrap';
 import type { Database } from '../db';
-import { destroyUserSessions, hashPassword, requireRole, toPublicUser, validatePasswordStrength } from '../security';
+import {
+  createSession,
+  destroyUserSessions,
+  hashPassword,
+  readSessionToken,
+  requireRole,
+  setAdminReturnCookie,
+  setSessionCookie,
+  toPublicUser,
+  validatePasswordStrength,
+} from '../security';
 import { isAiConfigured } from '../services/ai';
 import { storageInfo } from '../storage';
+import { ensureTestAccounts, removeTestAccounts, resetTestAccounts, testAccountNote, testAccountsEnabled } from '../testAccounts';
 import type { StoredUser } from '../types';
-import { asyncHandler, badRequest, conflict, notFound, optionalHttpUrl, requireBoolean, requireEmail, requireString } from '../validation';
+import { asyncHandler, badRequest, conflict, forbidden, notFound, optionalHttpUrl, requireBoolean, requireEmail, requireString } from '../validation';
 import { studentVerificationRequired } from '../views';
 
 const DEFAULT_PROFESSOR_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80';
@@ -44,6 +55,11 @@ export function adminRoutes(db: Database) {
       aiConfigured: isAiConfigured(),
       studentVerificationRequired: studentVerificationRequired(),
       storage: storageInfo.mode,
+      testAccountsEnabled: testAccountsEnabled(db),
+      // Sandbox accounts with their passwords: visible here only
+      testAccounts: users
+        .filter((u) => u.isTestAccount)
+        .map((u) => ({ ...toPublicUser(u), testPassword: u.testPassword, testNote: testAccountNote(u.email) })),
     });
   });
 
@@ -117,7 +133,9 @@ export function adminRoutes(db: Database) {
       assertManageable(req.user!.id, account);
       const password = validatePasswordStrength(req.body?.newPassword);
       account.passwordHash = await hashPassword(password);
-      account.mustChangePassword = true;
+      // Test accounts keep a known password; real users must choose their own
+      if (account.isTestAccount) account.testPassword = password;
+      else account.mustChangePassword = true;
       destroyUserSessions(db, account.id);
       db.save();
       res.json({ success: true, account: toPublicUser(account) });
@@ -151,11 +169,40 @@ export function adminRoutes(db: Database) {
     res.json({ success: true });
   });
 
+  // Open a test account in this browser; the admin session waits in a cookie to switch back to
+  router.post('/accounts/:id/sign-in-as', (req, res) => {
+    const account = findAccount(req.params.id);
+    if (!account.isTestAccount) throw forbidden('Only test accounts can be opened from the admin portal');
+    if (account.disabled) throw badRequest('This test account is disabled. Enable it first.');
+    const adminToken = readSessionToken(req)!;
+    account.lastLoginAt = new Date().toISOString();
+    const token = createSession(db, account.id);
+    setSessionCookie(req, res, token);
+    setAdminReturnCookie(req, res, adminToken);
+    res.json({ success: true, user: toPublicUser(account) });
+  });
+
+  router.post(
+    '/test-accounts/reset',
+    asyncHandler(async (_req, res) => {
+      await resetTestAccounts(db);
+      res.json({ success: true });
+    })
+  );
+
+  router.delete('/test-accounts', (_req, res) => {
+    removeTestAccounts(db);
+    db.data.settings.testAccounts = 'off';
+    db.save();
+    res.json({ success: true });
+  });
+
   router.post(
     '/reset-demo',
     asyncHandler(async (req, res) => {
       if (!isDemoMode()) throw notFound();
       await seedDemoData(db, { keepUserId: req.user!.id });
+      await ensureTestAccounts(db);
       res.json({ success: true });
     })
   );

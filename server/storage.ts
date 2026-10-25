@@ -12,7 +12,15 @@ export interface Snapshot {
 export interface RemoteStore {
   readRevision(): Promise<number>;
   read(): Promise<Snapshot | null>;
-  write(snapshot: Snapshot): Promise<void>;
+  /** Stores the snapshot only if the stored revision is still `expectedRevision`; false if another instance wrote first. */
+  write(snapshot: Snapshot, expectedRevision: number): Promise<boolean>;
+}
+
+/** Another instance saved first: this instance's unsaved changes were discarded and it reloaded. */
+export class StorageConflictError extends Error {
+  constructor() {
+    super('The data changed while this request was being handled');
+  }
 }
 
 /** Where this server keeps its data; reported to the admin portal. */
@@ -29,6 +37,12 @@ export function redisStoreFromEnv(): RemoteStore | null {
   if (!url || !token) return null;
   return new RedisStore(url, token, process.env.SIFTED_REDIS_KEY || 'sifted');
 }
+
+const CHECK_AND_SET = `
+local current = tonumber(redis.call('GET', KEYS[2]) or '0')
+if current ~= tonumber(ARGV[2]) then return 0 end
+redis.call('MSET', KEYS[1], ARGV[1], KEYS[2], ARGV[3])
+return 1`;
 
 class RedisStore implements RemoteStore {
   constructor(
@@ -59,8 +73,18 @@ class RedisStore implements RemoteStore {
     return JSON.parse(value) as Snapshot;
   }
 
-  async write(snapshot: Snapshot) {
-    // MSET is atomic: the revision never points past the document it describes
-    await this.command(['MSET', `${this.prefix}:database`, JSON.stringify(snapshot), `${this.prefix}:revision`, String(snapshot.revision)]);
+  async write(snapshot: Snapshot, expectedRevision: number) {
+    // Compare-and-set in one atomic script, so concurrent instances can't overwrite each other's changes
+    const result = await this.command([
+      'EVAL',
+      CHECK_AND_SET,
+      '2',
+      `${this.prefix}:database`,
+      `${this.prefix}:revision`,
+      JSON.stringify(snapshot),
+      String(expectedRevision),
+      String(snapshot.revision),
+    ]);
+    return Number(result) === 1;
   }
 }

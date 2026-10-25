@@ -82,14 +82,28 @@ export function destroyUserSessions(db: Database, userId: string, exceptToken?: 
   db.save();
 }
 
-export function readSessionToken(req: Request): string | undefined {
+export function readCookie(req: Request, cookieName: string): string | undefined {
   const header = req.headers.cookie;
   if (!header) return undefined;
   for (const part of header.split(';')) {
     const [name, ...rest] = part.trim().split('=');
-    if (name === SESSION_COOKIE) return decodeURIComponent(rest.join('='));
+    if (name === cookieName) return decodeURIComponent(rest.join('='));
   }
   return undefined;
+}
+
+export function readSessionToken(req: Request): string | undefined {
+  return readCookie(req, SESSION_COOKIE);
+}
+
+/** The signed-in, enabled account a session token belongs to, if the session is still valid. */
+export function userForToken(db: Database, token: string | undefined): StoredUser | undefined {
+  if (!token) return undefined;
+  const tokenHash = hashToken(token);
+  const session = db.data.sessions.find((s) => s.tokenHash === tokenHash);
+  if (!session || Date.parse(session.expiresAt) <= Date.now()) return undefined;
+  const user = db.findUser(session.userId);
+  return user && !user.disabled ? user : undefined;
 }
 
 function cookieAttributes(req: Request) {
@@ -100,15 +114,35 @@ function cookieAttributes(req: Request) {
 }
 
 export function setSessionCookie(req: Request, res: Response, token: string) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${SESSION_TTL_MS / 1000}; ${cookieAttributes(req)}`);
+  res.append('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${SESSION_TTL_MS / 1000}; ${cookieAttributes(req)}`);
 }
 
 export function clearSessionCookie(req: Request, res: Response) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Max-Age=0; ${cookieAttributes(req)}`);
+  res.append('Set-Cookie', `${SESSION_COOKIE}=; Max-Age=0; ${cookieAttributes(req)}`);
+}
+
+/**
+ * While the administrator is inside a test account, their own session token waits in this cookie
+ * so they can switch back without signing in again. It is only honoured for an admin session.
+ */
+export const ADMIN_RETURN_COOKIE = 'sifted_admin_return';
+
+export function setAdminReturnCookie(req: Request, res: Response, token: string) {
+  res.append('Set-Cookie', `${ADMIN_RETURN_COOKIE}=${encodeURIComponent(token)}; Max-Age=${SESSION_TTL_MS / 1000}; ${cookieAttributes(req)}`);
+}
+
+export function clearAdminReturnCookie(req: Request, res: Response) {
+  res.append('Set-Cookie', `${ADMIN_RETURN_COOKIE}=; Max-Age=0; ${cookieAttributes(req)}`);
+}
+
+/** The administrator waiting in the return cookie, if there is one and their session is still valid. */
+export function adminWaitingToReturn(db: Database, req: Request): StoredUser | undefined {
+  const admin = userForToken(db, readCookie(req, ADMIN_RETURN_COOKIE));
+  return admin?.role === 'admin' ? admin : undefined;
 }
 
 export function toPublicUser(user: StoredUser): UserAccount {
-  const { passwordHash, ...rest } = user;
+  const { passwordHash, testPassword, ...rest } = user;
   return { ...rest, hasPassword: Boolean(passwordHash) };
 }
 
@@ -116,15 +150,8 @@ export function toPublicUser(user: StoredUser): UserAccount {
 
 export function authenticate(db: Database): RequestHandler {
   return (req, _res, next) => {
-    const token = readSessionToken(req);
-    if (token) {
-      const tokenHash = hashToken(token);
-      const session = db.data.sessions.find((s) => s.tokenHash === tokenHash);
-      if (session && Date.parse(session.expiresAt) > Date.now()) {
-        const user = db.findUser(session.userId);
-        if (user && !user.disabled) req.user = user;
-      }
-    }
+    const user = userForToken(db, readSessionToken(req));
+    if (user) req.user = user;
     next();
   };
 }

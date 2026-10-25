@@ -205,6 +205,7 @@ export interface UserAccount {
   hasPassword?: boolean;
   createdAt?: string;
   lastLoginAt?: string;
+  isTestAccount?: boolean; // sandbox account created for the administrator to try things out
 }
 
 export interface AssessmentInvitation {
@@ -365,6 +366,14 @@ export interface AdminOverview {
   aiConfigured: boolean;
   studentVerificationRequired: boolean;
   storage: 'file' | 'redis' | 'temporary';
+  testAccountsEnabled: boolean;
+  testAccounts: TestAccount[];
+}
+
+// A sandbox account as the admin sees it: the only place a password is ever shown
+export interface TestAccount extends UserAccount {
+  testPassword?: string;
+  testNote?: string;
 }
 
 export interface AdminAccountDetail {

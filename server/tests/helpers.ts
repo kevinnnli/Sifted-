@@ -23,10 +23,22 @@ export async function startTestServer(env: Record<string, string | undefined> = 
   };
 }
 
-/** A browser-like client that keeps its own session cookie. */
+/** A browser-like client that keeps its own cookies. */
 export class TestClient {
-  cookie = '';
+  readonly cookies = new Map<string, string>();
   constructor(private readonly base: string) {}
+
+  /** The Cookie header this client sends; assigning one replaces all cookies (to replay a stolen header). */
+  get cookie() {
+    return [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ');
+  }
+  set cookie(header: string) {
+    this.cookies.clear();
+    for (const part of header.split(';')) {
+      const [name, ...rest] = part.trim().split('=');
+      if (name) this.cookies.set(name, rest.join('='));
+    }
+  }
 
   async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
     const res = await fetch(this.base + path, {
@@ -39,8 +51,13 @@ export class TestClient {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const setCookie = res.headers.get('set-cookie');
-    if (setCookie) this.cookie = setCookie.split(';')[0].endsWith('=') ? '' : setCookie.split(';')[0];
+    for (const line of res.headers.getSetCookie()) {
+      const [pair] = line.split(';');
+      const [name, ...rest] = pair.split('=');
+      const value = rest.join('=');
+      if (!value || /max-age=0/i.test(line)) this.cookies.delete(name);
+      else this.cookies.set(name, value);
+    }
     let data: any = null;
     try {
       data = await res.json();

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { RemoteStore } from './storage';
+import { StorageConflictError, type RemoteStore } from './storage';
 import type { DatabaseShape, StoredUser } from './types';
 
 export const SCHEMA_VERSION = 2;
@@ -16,6 +16,7 @@ export function emptyDatabase(): DatabaseShape {
     submissions: [],
     attempts: [],
     sessions: [],
+    settings: {},
   };
 }
 
@@ -61,8 +62,9 @@ function migrate(raw: any): DatabaseShape {
   // Fill any collection missing from an older or hand-edited file
   const defaults = emptyDatabase();
   for (const key of Object.keys(defaults) as (keyof DatabaseShape)[]) {
-    if (key !== 'version' && !Array.isArray(data[key])) (data as any)[key] = [];
+    if (Array.isArray(defaults[key]) && !Array.isArray(data[key])) (data as any)[key] = [];
   }
+  if (!data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)) data.settings = {};
   data.version = SCHEMA_VERSION;
   return data as DatabaseShape;
 }
@@ -82,6 +84,8 @@ export class Database {
   private revision = 0;
   private dirty = false;
   private writing: Promise<void> = Promise.resolve();
+  /** Increases whenever unsaved changes are thrown away after a conflict (see flush). */
+  epoch = 0;
 
   static async connect(store: RemoteStore): Promise<Database> {
     const db = new Database(null);
@@ -140,13 +144,23 @@ export class Database {
       if (!this.dirty) return;
       this.dirty = false;
       const revision = this.revision + 1;
+      let stored: boolean;
       try {
-        await store.write({ revision, data: this.data });
-        this.revision = revision;
+        stored = await store.write({ revision, data: this.data }, this.revision);
       } catch (e) {
         this.dirty = true;
         throw e;
       }
+      if (stored) {
+        this.revision = revision;
+        return;
+      }
+      // Another instance saved first: take its data and drop ours rather than overwrite it
+      const snapshot = await store.read();
+      this.data = snapshot ? migrate(snapshot.data) : emptyDatabase();
+      this.revision = snapshot?.revision ?? 0;
+      this.epoch++;
+      throw new StorageConflictError();
     });
     this.writing = run.catch(() => {});
     return run;

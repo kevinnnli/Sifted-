@@ -4,6 +4,7 @@ import express from 'express';
 import { createApp } from './app';
 import { ensureEnvAdmin, isDemoMode, seedDemoData } from './bootstrap';
 import { Database } from './db';
+import { ensureTestAccounts } from './testAccounts';
 import { errorHandler } from './security';
 import { sweepExpiredAttempts } from './services/attempts';
 
@@ -22,6 +23,7 @@ async function startServer() {
   }
   const adminWarning = await ensureEnvAdmin(db);
   if (adminWarning) console.warn(`⚠️  ${adminWarning}`);
+  if (await ensureTestAccounts(db)) console.log('Created the sandbox test accounts (see the admin portal).');
 
   const app = createApp(db);
 

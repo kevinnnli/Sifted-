@@ -1,15 +1,19 @@
 import crypto from 'crypto';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import type { Database } from '../db';
 import type { StoredUser } from '../types';
 import {
+  ADMIN_RETURN_COOKIE,
+  adminWaitingToReturn,
   AttemptLimiter,
+  clearAdminReturnCookie,
   burnPasswordCheck,
   clearSessionCookie,
   createSession,
   destroySession,
   destroyUserSessions,
   hashPassword,
+  readCookie,
   readSessionToken,
   requireUser,
   setSessionCookie,
@@ -32,9 +36,35 @@ export function authRoutes(db: Database) {
   const professorFor = (user: StoredUser) =>
     user.role === 'professor' ? db.data.professors.find((p) => p.id === user.professorId) : undefined;
 
+  // Ends the administrator session parked in the return cookie (on sign-in, registration or sign-out)
+  const dropParkedAdmin = (req: Request, res: Response) => {
+    const parked = readCookie(req, ADMIN_RETURN_COOKIE);
+    if (parked === undefined) return;
+    destroySession(db, parked);
+    clearAdminReturnCookie(req, res);
+  };
+
   router.get('/me', (req, res) => {
     if (!req.user) return res.json({ success: true, user: null });
-    res.json({ success: true, user: toPublicUser(req.user), professor: professorFor(req.user) });
+    res.json({
+      success: true,
+      user: toPublicUser(req.user),
+      professor: professorFor(req.user),
+      // The administrator opened this test account and can switch back
+      testSession: Boolean(req.user.isTestAccount && adminWaitingToReturn(db, req)),
+    });
+  });
+
+  router.post('/return-to-admin', (req, res) => {
+    const admin = adminWaitingToReturn(db, req);
+    if (!admin) {
+      clearAdminReturnCookie(req, res);
+      throw new HttpError(401, 'Your administrator session has ended. Please sign in again.');
+    }
+    if (req.user?.isTestAccount) destroySession(db, readSessionToken(req));
+    setSessionCookie(req, res, readCookie(req, ADMIN_RETURN_COOKIE)!);
+    clearAdminReturnCookie(req, res);
+    res.json({ success: true, user: toPublicUser(admin) });
   });
 
   router.post(
@@ -61,6 +91,7 @@ export function authRoutes(db: Database) {
       user.lastLoginAt = new Date().toISOString();
       // A fresh token on every sign-in (no session fixation)
       destroySession(db, readSessionToken(req));
+      dropParkedAdmin(req, res);
       const token = createSession(db, user.id);
       setSessionCookie(req, res, token);
       res.json({ success: true, user: toPublicUser(user), professor: professorFor(user) });
@@ -105,6 +136,7 @@ export function authRoutes(db: Database) {
       if (db.findUserByEmail(email)) throw conflict('An account with this email already exists. Please sign in instead.');
       db.data.users.push(user);
       db.save();
+      dropParkedAdmin(req, res);
       const token = createSession(db, user.id);
       setSessionCookie(req, res, token);
       res.status(201).json({ success: true, user: toPublicUser(user) });
@@ -114,6 +146,7 @@ export function authRoutes(db: Database) {
   router.post('/logout', (req, res) => {
     destroySession(db, readSessionToken(req));
     clearSessionCookie(req, res);
+    dropParkedAdmin(req, res);
     res.json({ success: true });
   });
 
@@ -131,6 +164,7 @@ export function authRoutes(db: Database) {
       if (currentPassword === newPassword) throw badRequest('Choose a password different from your current one');
       user.passwordHash = await hashPassword(newPassword);
       user.mustChangePassword = false;
+      if (user.isTestAccount) user.testPassword = newPassword;
       // Sign out every other device
       destroyUserSessions(db, user.id, readSessionToken(req));
       db.save();

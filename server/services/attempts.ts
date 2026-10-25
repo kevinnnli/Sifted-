@@ -147,7 +147,7 @@ const inFlight = new Map<string, Promise<ApplicantSubmission>>();
  * Grades an attempt on the server and turns it into a submission. Concurrent calls for the same
  * attempt (e.g. a manual submit racing the expiry sweep) share one result.
  */
-export function finalizeAttempt(db: Database, attemptId: string, opts: { autoSubmitted: boolean }): Promise<ApplicantSubmission> {
+export function finalizeAttempt(db: Database, attemptId: string, opts: { autoSubmitted: boolean; skipAi?: boolean }): Promise<ApplicantSubmission> {
   const existing = inFlight.get(attemptId);
   if (existing) return existing;
   const promise = gradeAndStore(db, attemptId, opts).finally(() => inFlight.delete(attemptId));
@@ -155,7 +155,7 @@ export function finalizeAttempt(db: Database, attemptId: string, opts: { autoSub
   return promise;
 }
 
-async function gradeAndStore(db: Database, attemptId: string, opts: { autoSubmitted: boolean }): Promise<ApplicantSubmission> {
+async function gradeAndStore(db: Database, attemptId: string, opts: { autoSubmitted: boolean; skipAi?: boolean }): Promise<ApplicantSubmission> {
   const attempt = db.data.attempts.find((a) => a.id === attemptId);
   if (!attempt) throw badRequest('This test has already been submitted');
   const assessment = db.data.assessments.find((a) => a.id === attempt.assessmentId);
@@ -180,14 +180,16 @@ async function gradeAndStore(db: Database, attemptId: string, opts: { autoSubmit
   let evaluatedResponses: Record<string, QuestionResponseItem> = graded.evaluatedResponses;
 
   // AI grading of open-ended answers against the rubrics, when configured
-  const ai = await gradeWithAI({
-    applicantName: student?.name || 'Applicant',
-    questions: examQuestions,
-    responses: evaluatedResponses,
-    overallScore: graded.overallScore,
-    totalWeightedScore: graded.totalWeightedScore,
-    maxTotalWeightedScore: graded.maxTotalWeightedScore,
-  });
+  const ai = opts.skipAi
+    ? null
+    : await gradeWithAI({
+        applicantName: student?.name || 'Applicant',
+        questions: examQuestions,
+        responses: evaluatedResponses,
+        overallScore: graded.overallScore,
+        totalWeightedScore: graded.totalWeightedScore,
+        maxTotalWeightedScore: graded.maxTotalWeightedScore,
+      });
   if (ai) {
     evaluatedResponses = { ...evaluatedResponses };
     ai.questionScores.forEach((qs) => {
