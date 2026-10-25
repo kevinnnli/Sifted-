@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # Sifted
 
 Sifted is a screening platform for undergraduates applying to graduate programs. Professors build assessments (from their own questions, a shared question bank, or AI-generated questions), assign them to students, and review the graded results. Students take the tests in their own private portal and see only their own invitations and decisions.
