@@ -17,9 +17,9 @@ interface NavbarProps {
   currentProfessor: ProfessorProfile;
   activeTab: string;
   onSelectTab: (tab: any) => void;
-  onGoHome: () => void;
+  onSignOut: () => void;
   currentUserAccount?: UserAccount | null;
-  onOpenAuthModal?: () => void;
+  onOpenAccount?: () => void;
   onOpenAssignModal?: () => void;
 }
 
@@ -27,9 +27,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentProfessor,
   activeTab,
   onSelectTab,
-  onGoHome,
+  onSignOut,
   currentUserAccount,
-  onOpenAuthModal,
+  onOpenAccount,
   onOpenAssignModal,
 }) => {
 
@@ -97,9 +97,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
             <button
-              onClick={onGoHome}
+              onClick={onSignOut}
               className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors whitespace-nowrap"
-              title="Sign out and return to the home page"
+              title="Sign out"
             >
               <LogOut className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -108,9 +108,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Account Switcher Badge */}
             <div className="flex items-center space-x-2 border-l border-slate-800 pl-2 sm:pl-3 shrink-0">
               <button
-                onClick={() => onOpenAuthModal && onOpenAuthModal()}
+                onClick={() => onOpenAccount && onOpenAccount()}
                 className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1.5 rounded-md border border-slate-700 text-xs font-medium transition-colors cursor-pointer group"
-                title="Click to switch account or sign in"
+                title="Account settings"
               >
                 <img
                   src={currentUserAccount?.avatar || currentProfessor.avatar}

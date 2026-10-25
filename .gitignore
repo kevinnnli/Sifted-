@@ -7,6 +7,6 @@ coverage/
 .env*
 !.env.example
 
-# Local runtime data written by server.ts
+# Local runtime data written by the server
 database.json
 database.json.corrupt-*

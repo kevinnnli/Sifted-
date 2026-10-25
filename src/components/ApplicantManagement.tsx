@@ -1,6 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Search, Award, CheckCircle2, AlertTriangle, ShieldAlert, ArrowUpDown, Mail, Send, MoreVertical, Eye, User, Calendar, X, GraduationCap, Building2, Video, Trash2 } from 'lucide-react';
+import { ReviewPatch } from '../api';
 import { ApplicantSubmission, Assessment, ProfessorProfile, InterviewRecommendation } from '../types';
+
+// Accept links pasted without a scheme (e.g. "meet.google.com/abc-defg-hij")
+export const normalizeMeetingLink = (link: string) => {
+  const trimmed = link.trim();
+  if (!trimmed) return '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
 import { getHireabilityBadgeStyle, getHireabilityShortText } from '../utils/grading';
 
 interface ApplicantManagementProps {
@@ -8,7 +16,7 @@ interface ApplicantManagementProps {
   submissions: ApplicantSubmission[];
   assessments: Assessment[];
   onSelectSubmission: (submission: ApplicantSubmission) => void;
-  onUpdateSubmission?: (submission: ApplicantSubmission) => void;
+  onReviewSubmission?: (submissionId: string, patch: ReviewPatch) => Promise<ApplicantSubmission | null>;
   onOpenAssignModal?: () => void;
   onRemoveSubmission?: (submissionId: string) => void;
 }
@@ -18,7 +26,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
   submissions,
   assessments,
   onSelectSubmission,
-  onUpdateSubmission,
+  onReviewSubmission,
   onOpenAssignModal,
   onRemoveSubmission,
 }) => {
@@ -35,7 +43,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
   const [schedulingSub, setSchedulingSub] = useState<ApplicantSubmission | null>(null);
   const [meetingDate, setMeetingDate] = useState<string>('');
   const [meetingTime, setMeetingTime] = useState<string>('10:00 AM EST');
-  const [meetingLink, setMeetingLink] = useState<string>('https://meet.google.com/faculty-research-interview');
+  const [meetingLink, setMeetingLink] = useState<string>('');
 
   const profAssessments = assessments.filter((a) => !a.professorId || a.professorId === currentProfessor.id);
   const profAssessmentIds = profAssessments.map((a) => a.id);
@@ -306,7 +314,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                             const defaultDate = sub.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
                             setMeetingDate(defaultDate);
                             setMeetingTime(sub.interviewTime || '10:00 AM EST');
-                            setMeetingLink(sub.meetingLink || 'https://meet.google.com/faculty-research-interview');
+                            setMeetingLink(sub.meetingLink || '');
                             setSchedulingSub(sub);
                           }}
                           className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-md border border-emerald-300 transition-colors flex items-center space-x-1"
@@ -362,7 +370,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                                   const defaultDate = sub.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
                                   setMeetingDate(defaultDate);
                                   setMeetingTime(sub.interviewTime || '10:00 AM EST');
-                                  setMeetingLink(sub.meetingLink || 'https://meet.google.com/faculty-research-interview');
+                                  setMeetingLink(sub.meetingLink || '');
                                   setSchedulingSub(sub);
                                 }}
                                 className="w-full px-4 py-2 text-xs text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 font-bold"
@@ -431,18 +439,8 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 flex items-center">
                       <Video className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                      Meeting Video Link *
+                      Meeting Video Link (optional — can be added later)
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const rand = Math.random().toString(36).substring(2, 6);
-                        setMeetingLink(`https://meet.google.com/phd-lab-${rand}`);
-                      }}
-                      className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-0.5 rounded transition-colors"
-                    >
-                      ⚡ Auto-Generate Link
-                    </button>
                   </div>
                   <input
                     type="text"
@@ -488,22 +486,18 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  if (onUpdateSubmission) {
-                    const chosenDate = meetingDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
-                    const chosenLink = meetingLink || 'https://meet.google.com/faculty-research-interview';
-                    const updated = {
-                      ...schedulingSub,
-                      status: 'reviewed' as const,
-                      professorDecision: 'Interview' as const,
-                      interviewDate: chosenDate,
-                      interviewTime: meetingTime,
-                      meetingLink: chosenLink,
-                      meetingConfirmed: true,
-                    };
-                    onUpdateSubmission(updated);
-                    showNotification(`Status set to Accepted! Interview scheduled for ${schedulingSub.applicantName} on ${chosenDate} at ${meetingTime} with video link.`, 5000);
-                  }
+                onClick={async () => {
+                  if (!onReviewSubmission) return;
+                  const sub = schedulingSub;
+                  const chosenDate = meetingDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
+                  const saved = await onReviewSubmission(sub.id, {
+                    professorDecision: 'Interview',
+                    interviewDate: chosenDate,
+                    interviewTime: meetingTime,
+                    meetingLink: normalizeMeetingLink(meetingLink),
+                  });
+                  if (!saved) return;
+                  showNotification(`Status set to Accepted! Interview scheduled for ${sub.applicantName} on ${chosenDate} at ${meetingTime}.`, 5000);
                   setSchedulingSub(null);
                 }}
                 className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"

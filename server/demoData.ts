@@ -1,5 +1,5 @@
-import { Question, Assessment, ApplicantSubmission, ProfessorProfile, UserAccount, AssessmentInvitation } from '../types';
-import { applyScoreOverrides, getHireabilityLevel, isEmptyOrTrivialResponse } from '../utils/grading';
+import type { Question, Assessment, ApplicantSubmission, ProfessorProfile, UserAccount, AssessmentInvitation } from '../src/types';
+import { applyScoreOverrides, getHireabilityLevel, isEmptyOrTrivialResponse } from '../src/utils/grading';
 
 export const MOCK_PROFESSORS: ProfessorProfile[] = [
   {
@@ -964,15 +964,6 @@ export const MOCK_SUBMISSIONS: ApplicantSubmission[] = RAW_MOCK_SUBMISSIONS.map(
 });
 
 export const MOCK_USER_ACCOUNTS: UserAccount[] = [
-  {
-    id: 'acc-admin-1',
-    name: 'Dr. Robert Vance (Provost)',
-    email: 'admin@university.edu',
-    isVerified: true,
-    role: 'admin',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=300&q=80',
-    adminTitle: 'Institutional Provost & Systems Administrator',
-  },
   {
     id: 'acc-prof-1',
     name: 'Dr. Elena Vance',

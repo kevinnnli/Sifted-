@@ -137,6 +137,7 @@ export interface ApplicantSubmission {
   id: string;
   assessmentId: string;
   invitationId?: string;
+  studentId?: string;
   applicantName: string;
   applicantEmail: string;
   secondaryEmail?: string;
@@ -181,13 +182,16 @@ export interface ProfessorProfile {
   allowLateSubmissions?: boolean;
 }
 
+export type UserRole = 'professor' | 'applicant' | 'admin';
+
+// An account as the client sees it (the server never sends password hashes or session data)
 export interface UserAccount {
   id: string;
   name: string;
   email: string;
   secondaryEmail?: string;
   isVerified?: boolean;
-  role: 'professor' | 'applicant' | 'admin';
+  role: UserRole;
   professorId?: string;
   avatar?: string;
   department?: string;
@@ -195,6 +199,12 @@ export interface UserAccount {
   university?: string;
   degreeProgram?: string;
   adminTitle?: string;
+  disabled?: boolean;
+  mustChangePassword?: boolean;
+  managedByEnv?: boolean; // the admin account configured through ADMIN_EMAIL / ADMIN_PASSWORD
+  hasPassword?: boolean;
+  createdAt?: string;
+  lastLoginAt?: string;
 }
 
 export interface AssessmentInvitation {
@@ -212,6 +222,156 @@ export interface AssessmentInvitation {
   deadline?: string;
 }
 
-export type ActiveRole = 'professor' | 'applicant-portal' | 'admin-portal' | 'landing';
+// ---- Role-scoped API views -------------------------------------------------
+
+export interface ProfessorCandidate {
+  email: string;
+  name: string;
+  university?: string;
+  degreeProgram?: string;
+  registered: boolean;
+}
+
+export interface ProfessorWorkspaceData {
+  professor: ProfessorProfile;
+  assessments: Assessment[];
+  questions: Question[];
+  submissions: ApplicantSubmission[];
+  invitations: AssessmentInvitation[];
+  candidates: ProfessorCandidate[];
+}
+
+// A question as a student sees it during a test: no answer key, rubric or model answer
+export interface StudentQuestion {
+  id: string;
+  type: QuestionType;
+  title: string;
+  prompt: string;
+  difficulty: DifficultyLevel;
+  topic: TopicCategory;
+  points: number;
+  options?: string[];
+  language?: Question['language'];
+  codeTemplate?: string;
+  latexFormula?: string;
+  testCases?: TestCase[];
+  paperExcerpt?: string;
+  chartType?: Question['chartType'];
+  chartData?: Question['chartData'];
+  researchContext?: string;
+}
+
+export interface StudentAssessmentSummary {
+  id: string;
+  title: string;
+  description: string;
+  researchGroup: string;
+  semester: string;
+  timeLimitMinutes: number;
+  questionCount: number;
+  isPublished: boolean;
+  isAdaptive: boolean;
+  integrityOptions: IntegrityOptions;
+}
+
+export interface StudentInvitationView {
+  id: string;
+  status: AssessmentInvitation['status'];
+  assignedAt: string;
+  deadline?: string;
+  notes?: string;
+  professorName: string;
+  assessment: StudentAssessmentSummary | null;
+  graceMinutes: number;
+  submissionId?: string;
+  hasActiveAttempt: boolean;
+  blocker: string | null; // why the test can't be started right now, if anything
+}
+
+export interface StudentQuestionResult {
+  questionId: string;
+  title: string;
+  topic: TopicCategory;
+  difficulty: DifficultyLevel;
+  points: number;
+  score: number;
+}
+
+export interface StudentSubmissionView {
+  id: string;
+  invitationId?: string;
+  assessmentId: string;
+  assessmentTitle: string;
+  researchGroup: string;
+  applicantName: string;
+  university: string;
+  degreeProgram: string;
+  finishTime?: string;
+  totalTimeSpentSeconds: number;
+  decision: 'Pending' | 'Interview' | 'Reject';
+  interview?: {
+    date?: string;
+    time?: string;
+    meetingLink?: string;
+    response?: 'Accepted' | 'Declined' | 'Pending';
+  };
+  scoresVisible: boolean;
+  overallScore?: number;
+  questionResults?: StudentQuestionResult[];
+}
+
+export interface StudentPortalData {
+  profile: UserAccount;
+  invitations: StudentInvitationView[];
+  submissions: StudentSubmissionView[];
+}
+
+export interface ExamAttemptView {
+  id: string;
+  invitationId: string;
+  assessment: StudentAssessmentSummary;
+  applicantName: string;
+  questions: StudentQuestion[];
+  startedAt: string;
+  serverNow: string;
+  timeLimitSeconds: number;
+  graceSeconds: number;
+  responses: Record<string, any>;
+  flagged: Record<string, boolean>;
+  currentQuestionIndex: number;
+  timeSpent: Record<string, number>;
+  tabSwitches: number;
+  copyPasteAttempts: number;
+  integrityEvents: string[];
+  lockdown: boolean;
+}
+
+// What the client sends when autosaving or submitting an attempt
+export interface AttemptProgress {
+  responses: Record<string, any>;
+  flagged: Record<string, boolean>;
+  currentQuestionIndex: number;
+  timeSpent: Record<string, number>;
+  tabSwitches: number;
+  copyPasteAttempts: number;
+  integrityEvents: string[];
+  lockdown: boolean;
+}
+
+export interface AdminOverview {
+  accounts: UserAccount[];
+  stats: { professors: number; students: number; admins: number; assessments: number; submissions: number; invitations: number };
+  demoMode: boolean;
+  aiConfigured: boolean;
+  studentVerificationRequired: boolean;
+}
+
+export interface AdminAccountDetail {
+  account: UserAccount;
+  professor?: ProfessorProfile;
+  assessments: Assessment[];
+  invitations: AssessmentInvitation[];
+  submissions: ApplicantSubmission[];
+}
 
 

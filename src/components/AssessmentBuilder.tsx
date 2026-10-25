@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Send,
 } from 'lucide-react';
+import { api, errorMessage } from '../api';
 import { Assessment, Question, QuestionType, DifficultyLevel, ProfessorProfile, IntegrityOptions } from '../types';
 
 const DEFAULT_INTEGRITY_OPTIONS: IntegrityOptions = {
@@ -34,8 +35,9 @@ interface AssessmentBuilderProps {
   currentProfessor: ProfessorProfile;
   assessments: Assessment[];
   questionBank: Question[];
-  onSaveAssessment: (assessment: Assessment) => void;
-  onAddQuestionToBank: (question: Question) => void;
+  // Both resolve to the copy saved on the server (with its server-assigned id), or null if saving failed
+  onSaveAssessment: (assessment: Assessment) => Promise<Assessment | null>;
+  onAddQuestionToBank: (question: Question) => Promise<Question | null>;
   showAIGeneratorOnOpen?: boolean;
   onCloseAIGenerator?: () => void;
   onOpenAssignModal?: (assessmentId?: string) => void;
@@ -86,6 +88,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiGeneratedResult, setAiGeneratedResult] = useState<Question | null>(null);
   const [aiIsFallback, setAiIsFallback] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
   const [aiIsPublic, setAiIsPublic] = useState<boolean>(true);
 
   const currentQuestions = questionIds
@@ -127,8 +130,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     setQuestionIds([]);
   };
 
-  // Saves the assessment and returns its id, or null if it isn't valid yet
-  const handleSave = (): string | null => {
+  // Saves the assessment and returns its id, or null if it isn't valid yet or saving failed
+  const handleSave = async (): Promise<string | null> => {
     if (!title.trim()) {
       alert('Please give the assessment a title (Step 1).');
       setCurrentStep(1);
@@ -140,7 +143,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       return null;
     }
     const newAssessment: Assessment = {
-      id: activeAssessmentId === 'new' ? `as-${Date.now()}` : activeAssessmentId,
+      id: activeAssessmentId === 'new' ? '' : activeAssessmentId,
       professorId: currentProfessor.id,
       title: title.trim(),
       description,
@@ -158,17 +161,18 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       isPublished,
       status: isPublished ? 'Published' : 'Draft',
     };
-    onSaveAssessment(newAssessment);
-    if (activeAssessmentId === 'new') {
-      setActiveAssessmentId(newAssessment.id);
-    }
-    alert(`Assessment "${newAssessment.title}" saved successfully!`);
-    return newAssessment.id;
+    setSaving(true);
+    const saved = await onSaveAssessment(newAssessment);
+    setSaving(false);
+    if (!saved) return null;
+    setActiveAssessmentId(saved.id);
+    alert(`Assessment "${saved.title}" saved successfully!`);
+    return saved.id;
   };
 
-  const handleSaveAndAssign = () => {
+  const handleSaveAndAssign = async () => {
     if (!onOpenAssignModal) return;
-    const savedId = handleSave();
+    const savedId = await handleSave();
     if (savedId) onOpenAssignModal(savedId);
   };
 
@@ -185,42 +189,28 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     setAiGeneratedResult(null);
     setAiIsFallback(false);
     try {
-      const response = await fetch('/api/ai/generate-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          field: aiField,
-          course: aiCourse,
-          specialization: aiSpecialization,
-          desiredDifficulty: aiDifficulty,
-          learningObjectives: aiLearningObjectives,
-          questionType: aiQuestionType,
-        }),
+      const data = await api.professor.generateQuestion({
+        field: aiField,
+        course: aiCourse,
+        specialization: aiSpecialization,
+        desiredDifficulty: aiDifficulty,
+        learningObjectives: aiLearningObjectives,
+        questionType: aiQuestionType,
       });
-      const data = await response.json();
-      if (data && data.question) {
-        setAiGeneratedResult(data.question);
-        setAiIsFallback(Boolean(data.isFallback));
-      } else {
-        throw new Error('Failed to parse question');
-      }
+      setAiGeneratedResult({ id: '', ...data.question } as Question);
+      setAiIsFallback(Boolean(data.isFallback));
     } catch (error) {
-      console.error(error);
-      alert('Failed to generate a question. Please check that the server is running and try again.');
+      alert(`Failed to generate a question: ${errorMessage(error)}`);
     } finally {
       setAiGenerating(false);
     }
   };
 
-  const handleAddGeneratedQuestion = () => {
+  const handleAddGeneratedQuestion = async () => {
     if (!aiGeneratedResult) return;
-    const finalQuestion: Question = {
-      ...aiGeneratedResult,
-      isPublic: aiIsPublic,
-      professorId: currentProfessor.id,
-    };
-    onAddQuestionToBank(finalQuestion);
-    setQuestionIds((prev) => (prev.includes(finalQuestion.id) ? prev : [...prev, finalQuestion.id]));
+    const saved = await onAddQuestionToBank({ ...aiGeneratedResult, isPublic: aiIsPublic });
+    if (!saved) return;
+    setQuestionIds((prev) => (prev.includes(saved.id) ? prev : [...prev, saved.id]));
     setShowAIGeneratorModal(false);
     if (onCloseAIGenerator) onCloseAIGenerator();
     setAiGeneratedResult(null);
@@ -265,7 +255,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
           <button
             onClick={() => handleSave()}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-1.5"
+            disabled={saving}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-1.5"
           >
             <Check className="w-4 h-4" />
             <span>Save Assessment</span>

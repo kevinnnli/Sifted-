@@ -26,38 +26,35 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
-import { ApplicantSubmission, Question, ProfessorDecision, InterviewRecommendation, QuestionResponseItem } from '../types';
-import {
-  applyScoreOverrides,
-  getEffectiveScore,
-  getHireabilityBadgeStyle,
-  getHireabilityLevel,
-  getHireabilityShortText,
-  isEmptyOrTrivialResponse,
-} from '../utils/grading';
+import { api, errorMessage, ReviewPatch } from '../api';
+import { ApplicantSubmission, Question, ProfessorDecision, InterviewRecommendation } from '../types';
+import { getEffectiveScore, getHireabilityBadgeStyle, getHireabilityShortText } from '../utils/grading';
+import { normalizeMeetingLink } from './ApplicantManagement';
 
 interface IndividualApplicantReviewProps {
   submission: ApplicantSubmission;
   questions: Question[];
   onBack: () => void;
-  onUpdateSubmission: (updated: ApplicantSubmission) => void;
+  // Saves on the server and resolves to the updated submission (null if it failed; the error is shown)
+  onReviewSubmission: (submissionId: string, patch: ReviewPatch) => Promise<ApplicantSubmission | null>;
 }
 
 export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps> = ({
   submission,
   questions,
   onBack,
-  onUpdateSubmission,
+  onReviewSubmission,
 }) => {
   const [profNotes, setProfNotes] = useState<string>(submission.professorNotes || '');
-  const [profDecision, setProfDecision] = useState<ProfessorDecision>(submission.professorDecision || 'Pending');
+  const profDecision: ProfessorDecision = submission.professorDecision || 'Pending';
   const [meetingDateInput, setMeetingDateInput] = useState<string>(submission.interviewDate || '');
   const [meetingTimeInput, setMeetingTimeInput] = useState<string>(submission.interviewTime || '10:00 AM EST');
-  const [meetingLinkInput, setMeetingLinkInput] = useState<string>(submission.meetingLink || 'https://meet.google.com/faculty-interview-room');
+  const [meetingLinkInput, setMeetingLinkInput] = useState<string>(submission.meetingLink || '');
   const [showInterviewModal, setShowInterviewModal] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'questions' | 'integrity' | 'briefing'>('overview');
   const [aiBriefing, setAiBriefing] = useState<string | null>(null);
   const [generatingBriefing, setGeneratingBriefing] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
 
   // Manual score overrides (unsaved edits; saved overrides live on the submission's responses)
   const [overrides, setOverrides] = useState<Record<string, number>>({});
@@ -65,79 +62,66 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
     ([qid, val]) => submission.responses[qid] && val !== getEffectiveScore(submission.responses[qid])
   );
 
-  const handleSaveOverrides = () => {
-    const rescored = applyScoreOverrides(submission, overrides, questions);
-    const responseList = Object.values(rescored.responses) as QuestionResponseItem[];
-    const emptyCount = responseList.filter((r) => isEmptyOrTrivialResponse(r.answer, questions.find((q) => q.id === r.questionId))).length;
-    onUpdateSubmission({
-      ...rescored,
-      hireabilityLevel: getHireabilityLevel(rescored.overallScore, emptyCount, responseList.length),
-      professorNotes: profNotes,
-    });
-    setOverrides({});
-    alert(`Score overrides saved. New weighted score: ${rescored.overallScore}%.`);
+  const save = async (patch: ReviewPatch) => {
+    setSaving(true);
+    const saved = await onReviewSubmission(submission.id, patch);
+    setSaving(false);
+    return saved;
   };
 
-  const handleSaveDecision = (decision: ProfessorDecision) => {
+  // The server re-totals the weighted score, topic breakdown and tier from the overrides
+  const handleSaveOverrides = async () => {
+    const saved = await save({ scoreOverrides: overrides, professorNotes: profNotes });
+    if (!saved) return;
+    setOverrides({});
+    alert(`Score overrides saved. New weighted score: ${saved.overallScore}%.`);
+  };
+
+  const handleSaveDecision = async (decision: ProfessorDecision) => {
     if (decision === 'Interview') {
-      const chosenDate = meetingDateInput || submission.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
-      const chosenTime = meetingTimeInput || submission.interviewTime || '10:00 AM EST';
-      setMeetingDateInput(chosenDate);
-      setMeetingTimeInput(chosenTime);
+      setMeetingDateInput(meetingDateInput || submission.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0]);
+      setMeetingTimeInput(meetingTimeInput || submission.interviewTime || '10:00 AM EST');
       setShowInterviewModal(true);
       return;
     }
-    setProfDecision(decision);
-    const updated: ApplicantSubmission = {
-      ...submission,
-      status: decision === 'Reject' ? 'reviewed' : 'completed',
-      professorNotes: profNotes,
-      professorDecision: decision,
-    };
-    onUpdateSubmission(updated);
-    alert(`Applicant marked as: "${decision}" with notes saved.`);
+    const saved = await save({ professorDecision: decision, professorNotes: profNotes });
+    if (saved) alert(`Applicant marked as: "${decision}" with notes saved.`);
   };
 
-  const handleConfirmInterviewSchedule = () => {
+  const handleSaveNotes = async () => {
+    const saved = await save({ professorNotes: profNotes });
+    if (saved) alert('Notes saved.');
+  };
+
+  const handleConfirmInterviewSchedule = async () => {
     const chosenDate = meetingDateInput || submission.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
     const chosenTime = meetingTimeInput || submission.interviewTime || '10:00 AM EST';
-    const chosenLink = meetingLinkInput || 'https://meet.google.com/faculty-interview-room';
-
-    setProfDecision('Interview');
-    setMeetingDateInput(chosenDate);
-    setMeetingTimeInput(chosenTime);
-    setMeetingLinkInput(chosenLink);
-
-    const updated: ApplicantSubmission = {
-      ...submission,
-      status: 'reviewed',
-      professorNotes: profNotes,
+    const chosenLink = normalizeMeetingLink(meetingLinkInput);
+    const saved = await save({
       professorDecision: 'Interview',
+      professorNotes: profNotes,
       interviewDate: chosenDate,
       interviewTime: chosenTime,
       meetingLink: chosenLink,
-      meetingConfirmed: true,
-    };
-    onUpdateSubmission(updated);
+    });
+    if (!saved) return;
+    setMeetingDateInput(chosenDate);
+    setMeetingTimeInput(chosenTime);
+    setMeetingLinkInput(chosenLink);
     setShowInterviewModal(false);
-    alert(`Applicant marked as Accepted (Interview)! Meeting scheduled for ${chosenDate} at ${chosenTime} with video link.`);
+    alert(`Applicant marked as Accepted (Interview)! Meeting scheduled for ${chosenDate} at ${chosenTime}.`);
   };
+
+  // Inline edits of an already-scheduled interview
+  const saveSchedule = (patch: Pick<ReviewPatch, 'interviewDate' | 'interviewTime' | 'meetingLink'>) => save(patch);
 
   const handleGenerateBriefing = async () => {
     setGeneratingBriefing(true);
     try {
-      const res = await fetch('/api/ai/analyze-applicant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ submission }),
-      });
-      const data = await res.json();
-      if (data && data.analysis) {
-        setAiBriefing(data.analysis);
-      }
+      const data = await api.professor.briefing(submission.id);
+      setAiBriefing(data.analysis);
     } catch (err) {
-      console.error(err);
-      setAiBriefing(`Executive Briefing for ${submission.applicantName}:\nApplicant achieved ${submission.overallScore}% overall with exceptional strength in algorithms and mathematical derivations. We recommend focusing live interview questions on their system design philosophy.`);
+      setAiBriefing(`Could not generate a briefing: ${errorMessage(err)}`);
     } finally {
       setGeneratingBriefing(false);
     }
@@ -349,6 +333,16 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                   placeholder="Leave confidential notes (e.g., 'Check proof of algorithm theorem during interview', 'Strong coding background')..."
                   className="w-full p-3 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-normal leading-relaxed"
                 />
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">Only you can see these notes — never the candidate.</span>
+                  <button
+                    onClick={handleSaveNotes}
+                    disabled={saving || profNotes === (submission.professorNotes || '')}
+                    className="text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-40 px-2.5 py-1 rounded border border-indigo-200"
+                  >
+                    Save Notes
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -409,15 +403,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                         value={meetingDateInput || submission.interviewDate || ''}
                         onChange={(e) => {
                           setMeetingDateInput(e.target.value);
-                          onUpdateSubmission({
-                            ...submission,
-                            professorDecision: 'Interview',
-                            interviewDate: e.target.value,
-                            interviewTime: meetingTimeInput || '10:00 AM EST',
-                            meetingLink: meetingLinkInput || 'https://meet.google.com/faculty-interview-room',
-                            meetingConfirmed: true,
-                            professorNotes: profNotes,
-                          });
+                          if (e.target.value) saveSchedule({ interviewDate: e.target.value });
                         }}
                         className="w-full bg-white border border-emerald-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
@@ -428,15 +414,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                         value={meetingTimeInput || '10:00 AM EST'}
                         onChange={(e) => {
                           setMeetingTimeInput(e.target.value);
-                          onUpdateSubmission({
-                            ...submission,
-                            professorDecision: 'Interview',
-                            interviewDate: meetingDateInput || submission.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
-                            interviewTime: e.target.value,
-                            meetingLink: meetingLinkInput || 'https://meet.google.com/faculty-interview-room',
-                            meetingConfirmed: true,
-                            professorNotes: profNotes,
-                          });
+                          saveSchedule({ interviewTime: e.target.value });
                         }}
                         className="w-full bg-white border border-emerald-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       >
@@ -454,44 +432,20 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[11px] font-bold text-emerald-900 flex items-center">
                         <Video className="w-3.5 h-3.5 mr-1 text-emerald-700" />
-                        Meeting Video Link *
+                        Meeting Video Link (saved when you leave the field)
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const rand = Math.random().toString(36).substring(2, 6);
-                          const newLink = `https://meet.google.com/phd-lab-${rand}`;
-                          setMeetingLinkInput(newLink);
-                          onUpdateSubmission({
-                            ...submission,
-                            professorDecision: 'Interview',
-                            interviewDate: meetingDateInput || submission.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
-                            interviewTime: meetingTimeInput || '10:00 AM EST',
-                            meetingLink: newLink,
-                            meetingConfirmed: true,
-                            professorNotes: profNotes,
-                          });
-                        }}
-                        className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-0.5 rounded transition-colors"
-                      >
-                        ⚡ Generate Meet Link
-                      </button>
                     </div>
                     <input
                       type="text"
                       placeholder="https://meet.google.com/..."
-                      value={meetingLinkInput || submission.meetingLink || ''}
-                      onChange={(e) => {
-                        setMeetingLinkInput(e.target.value);
-                        onUpdateSubmission({
-                          ...submission,
-                          professorDecision: 'Interview',
-                          interviewDate: meetingDateInput || submission.interviewDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
-                          interviewTime: meetingTimeInput || '10:00 AM EST',
-                          meetingLink: e.target.value,
-                          meetingConfirmed: true,
-                          professorNotes: profNotes,
-                        });
+                      value={meetingLinkInput}
+                      onChange={(e) => setMeetingLinkInput(e.target.value)}
+                      onBlur={() => {
+                        const link = normalizeMeetingLink(meetingLinkInput);
+                        if (link !== (submission.meetingLink || '')) {
+                          setMeetingLinkInput(link);
+                          saveSchedule({ meetingLink: link });
+                        }
                       }}
                       className="w-full bg-white border border-emerald-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
@@ -816,18 +770,8 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 flex items-center">
                       <Video className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                      Meeting Video Link *
+                      Meeting Video Link (optional — can be added later)
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const rand = Math.random().toString(36).substring(2, 6);
-                        setMeetingLinkInput(`https://meet.google.com/phd-lab-${rand}`);
-                      }}
-                      className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-0.5 rounded transition-colors"
-                    >
-                      ⚡ Auto-Generate Link
-                    </button>
                   </div>
                   <input
                     type="text"
@@ -874,7 +818,8 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               </button>
               <button
                 onClick={handleConfirmInterviewSchedule}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"
+                disabled={saving}
+                className="disabled:opacity-50 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Confirm & Save Interview 🎉</span>

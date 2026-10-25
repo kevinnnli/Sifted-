@@ -5,7 +5,8 @@ import { Question, TopicCategory, DifficultyLevel, QuestionType, ProfessorProfil
 interface QuestionBankProps {
   currentProfessor?: ProfessorProfile;
   questionBank: Question[];
-  onAddQuestionToBank: (question: Question) => void;
+  // Resolves to the saved question, or null if saving failed (the error is already shown)
+  onAddQuestionToBank: (question: Question) => Promise<Question | null>;
   onOpenAIGenerator: () => void;
 }
 
@@ -120,7 +121,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
     setShowManualModal(true);
   };
 
-  const handleCreateManualQuestion = (e: React.FormEvent) => {
+  const handleCreateManualQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualTitle.trim() || !manualPrompt.trim()) {
       alert('Please enter a title and prompt.');
@@ -150,7 +151,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
     const existing = editingQuestionId ? questionBank.find((q) => q.id === editingQuestionId) : undefined;
     const newQ: Question = {
       ...(existing || {}),
-      id: existing?.id || `q-custom-${Date.now()}`,
+      id: existing?.id || '',
       type: manualType,
       title: manualTitle.trim(),
       prompt: manualPrompt.trim(),
@@ -170,12 +171,13 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
       testCases: manualType === 'programming' ? existing?.testCases : undefined,
       latexFormula: manualType === 'math' && manualLatex.trim() ? manualLatex.trim() : undefined,
     };
-    onAddQuestionToBank(newQ);
+    const saved = await onAddQuestionToBank(newQ);
+    if (!saved) return; // keep the form open so nothing typed is lost
     setShowManualModal(false);
     alert(
       existing
-        ? `Question "${newQ.title}" updated.`
-        : `Question "${newQ.title}" added to ${manualIsPublic ? 'Public Question Bank' : 'your Private Questions'}!`
+        ? `Question "${saved.title}" updated.`
+        : `Question "${saved.title}" added to ${manualIsPublic ? 'Public Question Bank' : 'your Private Questions'}!`
     );
     resetManualForm();
   };

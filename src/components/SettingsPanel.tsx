@@ -1,24 +1,27 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, Cpu, Save, AlertCircle, CheckCircle2, Database } from 'lucide-react';
-import { ProfessorProfile } from '../types';
+import { ProfessorProfile, UserAccount } from '../types';
+import { ChangePasswordForm } from './ChangePasswordForm';
 
 interface SettingsPanelProps {
   currentProfessor: ProfessorProfile;
-  onUpdateProfessor: (prof: ProfessorProfile) => void;
+  onUpdateProfessor: (prof: ProfessorProfile) => Promise<boolean>;
   aiConfigured?: boolean | null;
+  onPasswordChanged?: (user: UserAccount) => void;
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   currentProfessor,
   onUpdateProfessor,
   aiConfigured = null,
+  onPasswordChanged,
 }) => {
   const [labName, setLabName] = useState(currentProfessor.labName);
   const [email, setEmail] = useState(currentProfessor.email);
   const [aiSensitivity, setAiSensitivity] = useState<'high' | 'medium' | 'low'>(currentProfessor.aiSensitivity || 'medium');
   const [allowLateSubmissions, setAllowLateSubmissions] = useState(currentProfessor.allowLateSubmissions ?? false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!labName.trim()) {
       alert('Lab or research group name cannot be empty.');
       return;
@@ -27,14 +30,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       alert('Please enter a valid notification email address.');
       return;
     }
-    onUpdateProfessor({
+    const ok = await onUpdateProfessor({
       ...currentProfessor,
       labName: labName.trim(),
       email: email.trim(),
       aiSensitivity,
       allowLateSubmissions,
     });
-    alert('Settings saved successfully!');
+    if (ok) alert('Settings saved successfully!');
   };
 
   return (
@@ -144,6 +147,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
               </label>
             </div>
+          </div>
+
+          {/* Password Card */}
+          <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3">3. Account Password</h3>
+            <ChangePasswordForm onChanged={(user) => onPasswordChanged?.(user)} />
           </div>
         </div>
 

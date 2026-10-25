@@ -1,30 +1,21 @@
 import React, { useState } from 'react';
 import { GraduationCap, Building2, ShieldCheck, Sparkles, ArrowRight, CheckCircle2, UserCheck, Lock, Users, FileText, Cpu, Eye, PlusCircle, LogIn } from 'lucide-react';
+import { api, errorMessage } from '../api';
 import { UserAccount } from '../types';
 
 interface LandingPageProps {
-  onSelectAccount: (account: UserAccount) => void;
-  onCreateStudentAccount: (newAcc: UserAccount) => void;
-  accounts: UserAccount[];
+  onAuthenticated: (user: UserAccount) => void;
   initialTab?: 'overview' | 'student-signup' | 'login';
-  assessmentsCount: number;
-  questionsCount: number;
-  submissionsCount: number;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({
-  onSelectAccount,
-  onCreateStudentAccount,
-  accounts,
-  initialTab = 'overview',
-  assessmentsCount,
-  questionsCount,
-  submissionsCount,
-}) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onAuthenticated, initialTab = 'overview' }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'student-signup' | 'login'>(initialTab);
-  const [loginRoleFilter, setLoginRoleFilter] = useState<'all' | 'applicant' | 'professor' | 'admin'>(
-    initialTab === 'login' ? 'applicant' : 'all'
-  );
+  const [submitting, setSubmitting] = useState(false);
+
+  // Sign In Form State
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   // Student Sign Up Form State
   const [name, setName] = useState('');
@@ -32,17 +23,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [secondaryEmail, setSecondaryEmail] = useState('');
   const [university, setUniversity] = useState('');
   const [degreeProgram, setDegreeProgram] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const handleStudentRegister = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    setSubmitting(true);
+    try {
+      const { user } = await api.auth.login(loginEmail, loginPassword);
+      setLoginPassword('');
+      onAuthenticated(user);
+    } catch (err) {
+      setLoginError(errorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleStudentRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!name.trim() || !email.trim() || !secondaryEmail.trim() || !university.trim() || !degreeProgram.trim()) {
       setError('Please fill in your name, university, degree program, and both email addresses.');
       return;
     }
-    if (accounts.some((a) => a.email.toLowerCase() === email.trim().toLowerCase())) {
-      setError('An account with this university email already exists. Use "Sign In" to access it.');
+    if (password.length < 8) {
+      setError('Your password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('The two passwords do not match.');
       return;
     }
     if (email.trim().toLowerCase() === secondaryEmail.trim().toLowerCase()) {
@@ -55,25 +67,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       return;
     }
 
-    const newAcc: UserAccount = {
-      id: `acc-app-${Date.now()}`,
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      secondaryEmail: secondaryEmail.trim().toLowerCase(),
-      isVerified: true,
-      role: 'applicant',
-      avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80`,
-      university: university.trim(),
-      degreeProgram: degreeProgram.trim(),
-    };
-
-    onCreateStudentAccount(newAcc);
+    setSubmitting(true);
+    try {
+      const { user } = await api.auth.register({
+        name: name.trim(),
+        email: email.trim(),
+        secondaryEmail: secondaryEmail.trim(),
+        university: university.trim(),
+        degreeProgram: degreeProgram.trim(),
+        password,
+      });
+      setPassword('');
+      setConfirmPassword('');
+      onAuthenticated(user);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   };
-
-  const filteredAccounts = accounts.filter((a) => {
-    if (loginRoleFilter === 'all') return true;
-    return a.role === loginRoleFilter;
-  });
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
@@ -92,24 +104,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             Sifted connects university research labs with prospective PhD and MS candidates. Students create isolated, verified accounts to take custom technical screening exams, while faculty evaluate algorithmic rigor and research intuition with automated AI grading rubrics.
           </p>
 
-          {/* Quick Stats Bar */}
+          {/* Platform Guarantees */}
           <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-            <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl text-center">
-              <span className="block text-2xl font-extrabold text-indigo-400">{assessmentsCount}+</span>
-              <span className="text-xs text-slate-400 font-medium">Active Research Screening Exams</span>
-            </div>
-            <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl text-center">
-              <span className="block text-2xl font-extrabold text-purple-400">{questionsCount}+</span>
-              <span className="text-xs text-slate-400 font-medium">LaTeX & Code Rubric Questions</span>
-            </div>
-            <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl text-center">
-              <span className="block text-2xl font-extrabold text-emerald-400">{submissionsCount}+</span>
-              <span className="text-xs text-slate-400 font-medium">Candidate Evaluations Completed</span>
-            </div>
-            <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl text-center">
-              <span className="block text-2xl font-extrabold text-pink-400">100%</span>
-              <span className="text-xs text-slate-400 font-medium">Isolated Role Security</span>
-            </div>
+            {[
+              { title: 'Private', text: 'Students only ever see their own tests and results', color: 'text-indigo-400' },
+              { title: 'Secure', text: 'Password-protected accounts with server-side sessions', color: 'text-purple-400' },
+              { title: 'Fair', text: 'Exams are timed and graded on the server', color: 'text-emerald-400' },
+              { title: 'Controlled', text: 'Faculty accounts are created by your administrator', color: 'text-pink-400' },
+            ].map((item) => (
+              <div key={item.title} className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl text-center">
+                <span className={`block text-xl font-extrabold ${item.color}`}>{item.title}</span>
+                <span className="text-xs text-slate-400 font-medium">{item.text}</span>
+              </div>
+            ))}
           </div>
 
           {/* Call to Action Buttons */}
@@ -122,14 +129,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>Student / Candidate Sign Up</span>
             </button>
             <button
-              onClick={() => {
-                setActiveTab('login');
-                setLoginRoleFilter('all');
-              }}
+              onClick={() => setActiveTab('login')}
               className="px-8 py-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/20 transition-all flex items-center space-x-2"
             >
               <LogIn className="w-5 h-5" />
-              <span>Portal Sign In (All Roles)</span>
+              <span>Sign In</span>
             </button>
           </div>
         </div>
@@ -171,7 +175,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               }`}
             >
               <LogIn className="w-4 h-4" />
-              <span>Sign In / Role Access</span>
+              <span>Sign In</span>
             </button>
           </div>
         </div>
@@ -193,7 +197,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                   <h3 className="text-xl font-bold text-white mt-2">Student & Applicant Portal</h3>
                   <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-                    Students create their own isolated accounts. Once registered, applicants can view screening exams assigned to their university email, submit LaTeX/Python solutions, and view automated evaluation feedback.
+                    Students create their own private, password-protected accounts. Once an administrator verifies the account, applicants can take the screening exams assigned to their university email and follow their application status.
                   </p>
                   <ul className="mt-4 space-y-2 text-xs text-slate-400">
                     <li className="flex items-center space-x-2">
@@ -211,7 +215,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </ul>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Instant Access</span>
+                  <span className="text-xs text-slate-400">Verified by your administrator</span>
                   <button
                     onClick={() => setActiveTab('student-signup')}
                     className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
@@ -254,10 +258,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Faculty Access</span>
                   <button
-                    onClick={() => {
-                      setActiveTab('login');
-                      setLoginRoleFilter('professor');
-                    }}
+                    onClick={() => setActiveTab('login')}
                     className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1"
                   >
                     <span>Sign In as Faculty</span>
@@ -278,7 +279,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                   <h3 className="text-xl font-bold text-white mt-2">Institutional Admin Portal</h3>
                   <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-                    Exclusive governance portal for provosts and system administrators. Authorize and create new faculty professor accounts, manage research lab credentials, and oversee platform-wide integrity security.
+                    Restricted to the administrator account configured on the server. Create faculty accounts, verify students, reset passwords, and review every account's records.
                   </p>
                   <ul className="mt-4 space-y-2 text-xs text-slate-400">
                     <li className="flex items-center space-x-2">
@@ -298,10 +299,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Provost Governance</span>
                   <button
-                    onClick={() => {
-                      setActiveTab('login');
-                      setLoginRoleFilter('admin');
-                    }}
+                    onClick={() => setActiveTab('login')}
                     className="text-xs font-bold text-purple-400 hover:text-purple-300 flex items-center space-x-1"
                   >
                     <span>Admin Portal Login</span>
@@ -444,6 +442,33 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password * (at least 8 characters)</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Confirm Password *</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
               <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-800">
                 <button
                   type="button"
@@ -454,125 +479,75 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center space-x-2"
+                  disabled={submitting}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-lg shadow-emerald-600/20 transition-all flex items-center space-x-2"
                 >
                   <UserCheck className="w-4 h-4" />
-                  <span>Create Account & Enter Portal</span>
+                  <span>{submitting ? 'Creating Account…' : 'Create Account & Enter Portal'}</span>
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        {/* TAB 3: SIGN IN / ROLE SELECTOR */}
+        {/* TAB 3: SIGN IN */}
         {activeTab === 'login' && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl animate-in fade-in duration-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800 mb-6">
+          <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl animate-in fade-in duration-200">
+            <div className="flex items-center space-x-3 pb-6 border-b border-slate-800 mb-6">
+              <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                <Lock className="w-6 h-6" />
+              </div>
               <div>
-                <h3 className="text-xl font-bold text-white">Select Account to Enter Portal</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Choose your role below to access your isolated environment. Notice that Admin accounts have exclusive faculty creation permissions.
-                </p>
-              </div>
-
-              {/* Role Filter Tabs */}
-              <div className="flex space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                <button
-                  onClick={() => setLoginRoleFilter('all')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                    loginRoleFilter === 'all' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  All ({accounts.length})
-                </button>
-                <button
-                  onClick={() => setLoginRoleFilter('applicant')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                    loginRoleFilter === 'applicant' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Students
-                </button>
-                <button
-                  onClick={() => setLoginRoleFilter('professor')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                    loginRoleFilter === 'professor' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Faculty
-                </button>
-                <button
-                  onClick={() => setLoginRoleFilter('admin')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                    loginRoleFilter === 'admin' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Admin
-                </button>
+                <h3 className="text-xl font-bold text-white">Sign In</h3>
+                <p className="text-xs text-slate-400">Students, faculty and administrators all sign in here with their own email and password.</p>
               </div>
             </div>
 
-            {/* List of Accounts */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pr-1">
-              {filteredAccounts.map((acc) => {
-                const isProf = acc.role === 'professor';
-                const isAdmin = acc.role === 'admin';
-                const isStudent = acc.role === 'applicant';
-
-                let badgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-                let borderHover = 'hover:border-emerald-500/60';
-                let icon = <GraduationCap className="w-4 h-4 text-emerald-400" />;
-
-                if (isProf) {
-                  badgeClass = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
-                  borderHover = 'hover:border-indigo-500/60';
-                  icon = <Building2 className="w-4 h-4 text-indigo-400" />;
-                } else if (isAdmin) {
-                  badgeClass = 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-                  borderHover = 'hover:border-purple-500/60';
-                  icon = <ShieldCheck className="w-4 h-4 text-purple-400" />;
-                }
-
-                return (
-                  <div
-                    key={acc.id}
-                    onClick={() => onSelectAccount(acc)}
-                    className={`p-4 rounded-xl bg-slate-950/60 border border-slate-800 ${borderHover} cursor-pointer transition-all flex items-start justify-between group shadow-md hover:shadow-xl`}
-                  >
-                    <div className="flex items-start space-x-3 min-w-0">
-                      <img
-                        src={acc.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
-                        alt={acc.name}
-                        className="w-11 h-11 rounded-full object-cover border border-slate-700 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-sm text-white truncate group-hover:text-indigo-300 transition-colors">
-                            {acc.name}
-                          </span>
-                        </div>
-                        <span className="text-xs text-slate-400 block truncate">{acc.email}</span>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass} uppercase`}>
-                            {icon}
-                            <span>{acc.role}</span>
-                          </span>
-                          <span className="text-[11px] text-slate-400 truncate">
-                            {acc.labName || acc.department || acc.university || acc.adminTitle}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="self-center shrink-0 ml-2">
-                      <div className="w-8 h-8 rounded-full bg-slate-900 group-hover:bg-indigo-600 text-slate-400 group-hover:text-white flex items-center justify-center transition-all">
-                        <ArrowRight className="w-4 h-4" />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <form onSubmit={handleLogin} className="space-y-4">
+              {loginError && (
+                <div className="bg-rose-500/10 border border-rose-500/30 p-3.5 rounded-lg text-xs text-rose-300 font-medium">
+                  {loginError}
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="username"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="you@university.edu"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center space-x-2"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>{submitting ? 'Signing In…' : 'Sign In'}</span>
+              </button>
+              <p className="text-[11px] text-slate-500 text-center leading-relaxed">
+                New student?{' '}
+                <button type="button" onClick={() => setActiveTab('student-signup')} className="text-emerald-400 hover:text-emerald-300 font-semibold underline">
+                  Create an account
+                </button>
+                . Faculty accounts are created by your administrator; forgotten passwords can be reset by the administrator.
+              </p>
+            </form>
           </div>
         )}
       </div>

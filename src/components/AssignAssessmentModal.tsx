@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
-import { Assessment, UserAccount, AssessmentInvitation, ProfessorProfile } from '../types';
+import { errorMessage } from '../api';
+import { Assessment, AssessmentInvitation, ProfessorCandidate } from '../types';
 import { Send, UserCheck, Calendar, FileText, CheckCircle2, AlertCircle, X, Mail, Plus } from 'lucide-react';
+
+export interface AssignInput {
+  assessmentId: string;
+  emails: string[];
+  deadline?: string;
+  notes?: string;
+}
 
 interface AssignAssessmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   assessments?: Assessment[];
-  accounts?: UserAccount[];
+  // Only students already connected to this professor; others are invited by typing their email
+  candidates?: ProfessorCandidate[];
   invitations?: AssessmentInvitation[];
-  currentProfessor?: ProfessorProfile;
   preselectedAssessmentId?: string;
-  onAssign: (invitation: AssessmentInvitation) => void;
+  onAssign: (input: AssignInput) => Promise<{ created: AssessmentInvitation[]; skipped: { email: string; reason: string }[] }>;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -24,9 +32,8 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
   isOpen,
   onClose,
   assessments = [],
-  accounts = [],
+  candidates = [],
   invitations = [],
-  currentProfessor,
   preselectedAssessmentId,
   onAssign,
 }) => {
@@ -39,11 +46,12 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
   const [customEmailError, setCustomEmailError] = useState<string | null>(null);
   const [deadline, setDeadline] = useState(toDateInputValue(new Date(Date.now() + 14 * 86400000)));
   const [notes, setNotes] = useState('Please complete this screening exam in full-screen mode at your earliest convenience.');
-  const [assignedSummary, setAssignedSummary] = useState<{ assigned: number; skipped: number } | null>(null);
+  const [assignedSummary, setAssignedSummary] = useState<{ assigned: number; skipped: { email: string; reason: string }[] } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const applicantAccounts = accounts.filter((a) => a?.role === 'applicant');
   const selectedAssessment = assessments.find((a) => a.id === selectedAssessmentId);
 
   // Students who already have an open (not yet submitted) invitation for this assessment
@@ -72,38 +80,29 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
     setCustomEmail('');
   };
 
-  const handleAssignSubmit = (e: React.FormEvent) => {
+  const handleAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedEmails.length === 0 || !selectedAssessment) return;
-
-    let assigned = 0;
-    let skipped = 0;
-    selectedEmails.forEach((email, idx) => {
-      if (alreadyInvited.has(email)) {
-        skipped++;
-        return;
-      }
-      const acc = accounts.find((a) => a?.email.toLowerCase() === email.toLowerCase());
-      onAssign({
-        id: `inv-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await onAssign({
         assessmentId: selectedAssessment.id,
-        professorId: currentProfessor?.id || selectedAssessment.professorId,
-        applicantEmail: email,
-        applicantName: acc?.name || email.split('@')[0],
-        assignedAt: new Date().toISOString(),
-        status: 'pending',
+        emails: selectedEmails,
         deadline: deadline || undefined,
         notes: notes.trim() || undefined,
       });
-      assigned++;
-    });
-
-    setAssignedSummary({ assigned, skipped });
-    setTimeout(() => {
-      setAssignedSummary(null);
-      setSelectedEmails([]);
-      onClose();
-    }, 1800);
+      setAssignedSummary({ assigned: result.created.length, skipped: result.skipped });
+      setTimeout(() => {
+        setAssignedSummary(null);
+        setSelectedEmails([]);
+        onClose();
+      }, result.skipped.length ? 3500 : 1800);
+    } catch (err) {
+      setSubmitError(errorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -144,7 +143,11 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                   {assignedSummary.assigned} candidate(s) will see <strong className="text-slate-900">{selectedAssessment?.title}</strong> in their Candidate Portal upon sign-in.{' '}
                 </>
               )}
-              {assignedSummary.skipped > 0 && <>{assignedSummary.skipped} candidate(s) already had an open invitation and were skipped.</>}
+              {assignedSummary.skipped.map((skip) => (
+                <span key={skip.email} className="block text-xs text-amber-700 mt-1">
+                  Skipped {skip.email}: {skip.reason}.
+                </span>
+              ))}
             </p>
           </div>
         ) : assessments.length === 0 ? (
@@ -193,27 +196,27 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center">
                   <UserCheck className="w-4 h-4 mr-1.5 text-emerald-600" />
-                  Select Registered Candidate Accounts
+                  Your Candidates
                 </label>
                 <span className="text-xs font-semibold text-indigo-600">
                   {selectedEmails.length} Selected
                 </span>
               </div>
               <p className="text-xs text-slate-500 mb-3">
-                Click candidate accounts below to direct this test to their portal profile:
+                Students you've invited or reviewed before. To invite someone new, type their university email below.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-lg bg-slate-50/50">
-                {applicantAccounts.length === 0 && (
-                  <p className="text-xs text-slate-500 p-3 md:col-span-2">No student accounts have registered yet. Add an email address below instead.</p>
+                {candidates.length === 0 && (
+                  <p className="text-xs text-slate-500 p-3 md:col-span-2">No candidates yet. Add an email address below instead.</p>
                 )}
-                {applicantAccounts.map((acc) => {
+                {candidates.map((acc) => {
                   const email = acc.email.toLowerCase();
                   const isSelected = selectedEmails.includes(email);
                   const hasOpenInvite = alreadyInvited.has(email);
                   return (
                     <div
-                      key={acc.id}
+                      key={acc.email}
                       onClick={() => !hasOpenInvite && toggleEmail(email)}
                       className={`p-2.5 rounded-md border transition-all flex items-center space-x-2.5 ${
                         hasOpenInvite
@@ -224,10 +227,15 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                       }`}
                       title={hasOpenInvite ? 'Already invited to this assessment' : undefined}
                     >
-                      <img src={acc.avatar} alt={acc.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[11px] flex items-center justify-center shrink-0">
+                        {acc.name.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-bold truncate">{acc.name}</div>
-                        <div className="text-[11px] text-slate-500 truncate">{hasOpenInvite ? 'Already invited' : acc.email}</div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {hasOpenInvite ? 'Already invited' : acc.email}
+                          {!acc.registered && !hasOpenInvite ? ' • not registered yet' : ''}
+                        </div>
                       </div>
                       {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
                     </div>
@@ -323,6 +331,10 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
               </div>
             </div>
 
+            {submitError && (
+              <div className="bg-rose-50 border border-rose-200 p-3 rounded-lg text-xs text-rose-800 font-medium">{submitError}</div>
+            )}
+
             {/* Footer */}
             <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
               <span className="text-xs text-slate-500 flex items-center">
@@ -339,7 +351,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={selectedEmails.length === 0 || !selectedAssessment || (deadline !== '' && deadline < today)}
+                  disabled={submitting || selectedEmails.length === 0 || !selectedAssessment || (deadline !== '' && deadline < today)}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-md text-xs font-semibold shadow-sm transition-colors flex items-center space-x-1.5"
                 >
                   <Send className="w-4 h-4" />
