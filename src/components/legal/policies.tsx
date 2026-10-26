@@ -26,7 +26,7 @@ export interface PolicyDocument {
   sections: (site: SiteInfo) => PolicySection[];
 }
 
-const LAST_UPDATED = '25 October 2026';
+const LAST_UPDATED = '26 October 2026';
 export { LAST_UPDATED };
 
 const P = ({ children }: { children: React.ReactNode }) => <p className="leading-relaxed">{children}</p>;
@@ -130,7 +130,8 @@ const privacy: PolicyDocument = {
           <P>
             Multiple-choice answers are graded automatically. If the operator has enabled AI grading, written answers are also scored by Google’s Gemini
             service against the professor’s rubric, and an AI summary and recommendation are produced for the professor. AI output is advisory: admission
-            and interview decisions are made by professors, who can review and override every score.
+            and interview decisions are made by professors, who can review and override every score. Each submission records whether AI grading was
+            used for it, and professors are shown which.
           </P>
         </>
       ),
@@ -143,6 +144,7 @@ const privacy: PolicyDocument = {
           items={[
             'You can see your own invitations, decisions and, where the professor allows it, your scores.',
             'A professor can see the submissions of students they invited to their own assessments, including answers, scores, integrity events and the details you confirmed. Professors cannot see other professors’ students.',
+            'When a professor invites an email address, they learn whether an account exists for it, but not your name, university or degree programme. Those are shared with that professor once you start one of their tests.',
             'The administrator of this deployment can see all accounts and records in order to run the service, verify students and handle requests such as deletion.',
             'Other students cannot see anything about you.',
           ]}
@@ -310,17 +312,23 @@ const cookies: PolicyDocument = {
             </thead>
             <tbody className="align-top">
               <tr className="border-b border-slate-200">
-                <td className="py-2 pr-4 font-mono text-xs">sifted_session</td>
-                <td className="py-2 pr-4">Keeps you signed in. Contains a random identifier only; it is HTTP-only (not readable by scripts) and sent only over HTTPS.</td>
+                <td className="py-2 pr-4 font-mono text-xs">__Host-sifted_session</td>
+                <td className="py-2 pr-4">
+                  Keeps you signed in. Contains a random identifier only; it is HTTP-only (not readable by scripts) and sent only over HTTPS. The
+                  <span className="font-mono text-xs"> __Host-</span> prefix means browsers accept it only from this site itself.
+                </td>
                 <td className="py-2">Until 7 days without activity, and at most 30 days after sign-in. Removed when you sign out.</td>
               </tr>
               <tr>
-                <td className="py-2 pr-4 font-mono text-xs">sifted_admin_return</td>
+                <td className="py-2 pr-4 font-mono text-xs">__Host-sifted_admin_return</td>
                 <td className="py-2 pr-4">Administrators only: remembers the administrator’s session while they use a test account, so they can switch back.</td>
                 <td className="py-2">Until the administrator switches back or signs out.</td>
               </tr>
             </tbody>
           </table>
+          <p className="mt-2 text-xs text-slate-600">
+            On a copy of Sifted run locally without HTTPS (for development), the same cookies are named sifted_session and sifted_admin_return.
+          </p>
         </div>
       ),
     },

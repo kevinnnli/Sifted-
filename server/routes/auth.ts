@@ -3,7 +3,6 @@ import { Router, type Request, type Response } from 'express';
 import type { Database } from '../db';
 import type { StoredUser } from '../types';
 import {
-  ADMIN_RETURN_COOKIE,
   adminWaitingToReturn,
   AttemptLimiter,
   clearAdminReturnCookie,
@@ -13,7 +12,7 @@ import {
   destroySession,
   destroyUserSessions,
   hashPassword,
-  readCookie,
+  readAdminReturnToken,
   readSessionToken,
   requireUser,
   setSessionCookie,
@@ -39,12 +38,26 @@ export function authRoutes(db: Database) {
   const professorFor = (user: StoredUser) =>
     user.role === 'professor' ? db.data.professors.find((p) => p.id === user.professorId) : undefined;
 
-  // Ends the administrator session parked in the return cookie (on sign-in, registration or sign-out)
-  const dropParkedAdmin = (req: Request, res: Response) => {
-    const parked = readCookie(req, ADMIN_RETURN_COOKIE);
-    if (parked === undefined) return;
-    destroySession(db, parked);
-    clearAdminReturnCookie(req, res);
+  /**
+   * Replaces whatever sessions this browser had (its own, and an administrator session parked in
+   * the return cookie) with a fresh one for `userId`: a new token on every sign-in, so a token known
+   * before signing in is worthless afterwards (no session fixation). Runs inside db.commit(), so
+   * on serverless hosting it is retried rather than lost if another instance saves at the same time.
+   */
+  const startFreshSession = async (req: Request, res: Response, userId: string, change?: () => void) => {
+    const previous = readSessionToken(req);
+    const parked = readAdminReturnToken(req);
+    const token = await db.commit(() => {
+      change?.();
+      const user = db.findUser(userId);
+      if (!user || user.disabled) throw new HttpError(401, 'Incorrect email or password');
+      destroySession(db, previous);
+      destroySession(db, parked);
+      return createSession(db, req, user.id);
+    });
+    if (parked !== undefined) clearAdminReturnCookie(req, res);
+    setSessionCookie(req, res, token);
+    return db.findUser(userId)!;
   };
 
   router.get('/me', (req, res) => {
@@ -65,7 +78,7 @@ export function authRoutes(db: Database) {
       throw new HttpError(401, 'Your administrator session has ended. Please sign in again.');
     }
     if (req.user?.isTestAccount) destroySession(db, readSessionToken(req));
-    setSessionCookie(req, res, readCookie(req, ADMIN_RETURN_COOKIE)!);
+    setSessionCookie(req, res, readAdminReturnToken(req)!);
     clearAdminReturnCookie(req, res);
     res.json({ success: true, user: toPublicUser(admin) });
   });
@@ -91,13 +104,11 @@ export function authRoutes(db: Database) {
       if (user.disabled) throw new HttpError(403, 'This account has been disabled. Please contact your administrator.');
 
       loginLimiter.reset(key);
-      user.lastLoginAt = new Date().toISOString();
-      // A fresh token on every sign-in (no session fixation)
-      destroySession(db, readSessionToken(req));
-      dropParkedAdmin(req, res);
-      const token = createSession(db, user.id);
-      setSessionCookie(req, res, token);
-      res.json({ success: true, user: toPublicUser(user), professor: professorFor(user) });
+      const signedIn = await startFreshSession(req, res, user.id, () => {
+        const current = db.findUser(user.id);
+        if (current) current.lastLoginAt = new Date().toISOString();
+      });
+      res.json({ success: true, user: toPublicUser(signedIn), professor: professorFor(signedIn) });
     })
   );
 
@@ -136,25 +147,29 @@ export function authRoutes(db: Database) {
         createdAt: new Date().toISOString(),
         lastLoginAt: new Date().toISOString(),
       };
-      // Re-check after the async hash in case of a concurrent registration
-      if (db.findUserByEmail(email)) throw conflict('An account with this email already exists. Please sign in instead.');
-      db.data.users.push(user);
-      db.save();
-      // A fresh session for the new account (no session fixation via an earlier cookie)
-      destroySession(db, readSessionToken(req));
-      dropParkedAdmin(req, res);
-      const token = createSession(db, user.id);
-      setSessionCookie(req, res, token);
-      res.status(201).json({ success: true, user: toPublicUser(user) });
+      const created = await startFreshSession(req, res, user.id, () => {
+        // Checked again here: another registration may have finished while the password was hashed
+        if (db.findUserByEmail(email)) throw conflict('An account with this email already exists. Please sign in instead.');
+        db.data.users.push(user);
+      });
+      res.status(201).json({ success: true, user: toPublicUser(created) });
     })
   );
 
-  router.post('/logout', (req, res) => {
-    destroySession(db, readSessionToken(req));
-    clearSessionCookie(req, res);
-    dropParkedAdmin(req, res);
-    res.json({ success: true });
-  });
+  router.post(
+    '/logout',
+    asyncHandler(async (req, res) => {
+      const token = readSessionToken(req);
+      const parked = readAdminReturnToken(req);
+      await db.commit(() => {
+        destroySession(db, token);
+        destroySession(db, parked);
+      });
+      clearSessionCookie(req, res);
+      if (parked !== undefined) clearAdminReturnCookie(req, res);
+      res.json({ success: true });
+    })
+  );
 
   router.post(
     '/change-password',

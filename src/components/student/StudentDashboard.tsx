@@ -25,7 +25,7 @@ const initials = (name: string) =>
 
 const DECISION_LABEL: Record<StudentSubmissionView['decision'], { text: string; className: string }> = {
   Pending: { text: 'Awaiting review', className: 'border-amber-200 bg-amber-50 text-amber-900' },
-  Interview: { text: 'Invited to interview', className: 'border-emerald-200 bg-emerald-50 text-emerald-900' },
+  Interview: { text: 'Invited to interview', className: 'border-brand-200 bg-brand-50 text-brand-900' },
   Reject: { text: 'Not progressing', className: 'border-slate-300 bg-slate-100 text-slate-700' },
 };
 
@@ -80,7 +80,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
             <div>
               {profile.isVerified ? (
-                <span className="mb-1 inline-flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                <span className="mb-1 inline-flex items-center gap-1.5 rounded border border-brand-200 bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-800">
                   <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
                   Verified account
                 </span>
@@ -145,7 +145,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <>
               Interviews
               {interviews.length > 0 && (
-                <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900">{interviews.length}</span>
+                <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-900">{interviews.length}</span>
               )}
             </>
           )}
@@ -216,8 +216,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         aria-pressed={sub.interview?.response === 'Accepted'}
                         className={
                           sub.interview?.response === 'Accepted'
-                            ? 'rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white'
-                            : 'rounded-md border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50'
+                            ? 'rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white'
+                            : 'rounded-md border border-brand-600 bg-white px-4 py-2 text-sm font-semibold text-brand-800 hover:bg-brand-50'
                         }
                       >
                         {sub.interview?.response === 'Accepted' ? 'Accepted' : 'Accept interview'}
@@ -331,7 +331,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         <h3 className="text-lg font-semibold">{sub.assessmentTitle}</h3>
                         <p className="text-sm text-slate-600">{sub.researchGroup}</p>
                         {sub.decision === 'Interview' && (
-                          <p className="text-sm text-emerald-900">
+                          <p className="text-sm text-brand-900">
                             {sub.interview?.date
                               ? `Interview on ${formatLocalDate(sub.interview.date)}${sub.interview.time ? ` at ${sub.interview.time}` : ''}.`
                               : 'The professor will add the interview date and time.'}

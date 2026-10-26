@@ -5,6 +5,7 @@ import type { Database } from './db';
 import type { StoredUser } from './types';
 import type { UserAccount, UserRole } from '../src/types';
 import { securityHeaderList } from './securityHeaders.mjs';
+import { StorageConflictError } from './storage';
 import { HttpError } from './validation';
 
 const scrypt = promisify(crypto.scrypt) as (password: string, salt: Buffer, keylen: number, options: crypto.ScryptOptions) => Promise<Buffer>;
@@ -75,7 +76,21 @@ export async function burnPasswordCheck(password: string) {
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
-export function createSession(db: Database, userId: string): string {
+/**
+ * Over HTTPS both cookies carry the `__Host-` prefix, which browsers only accept from this exact
+ * host with `Secure`, `Path=/` and no `Domain`. Another site on a sibling subdomain (common on
+ * university domains) therefore cannot plant or overwrite them. Plain HTTP development uses the
+ * unprefixed names.
+ */
+const HOST_PREFIX = '__Host-';
+
+/** A session or admin-return token, and whether it arrived in a `__Host-` cookie. */
+export interface TokenCookie {
+  token: string;
+  hostOnly: boolean;
+}
+
+export function createSession(db: Database, req: Request, userId: string): string {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
   db.data.sessions = db.data.sessions.filter((s) => Date.parse(s.expiresAt) > now);
@@ -84,6 +99,8 @@ export function createSession(db: Database, userId: string): string {
     userId,
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + SESSION_IDLE_MS).toISOString(),
+    // Issued in a __Host- cookie: from now on it is only accepted from one
+    hostOnly: cookiesAreSecure(req),
   });
   db.save();
   return token;
@@ -110,47 +127,78 @@ export function destroyUserSessions(db: Database, userId: string, exceptToken?: 
   db.save();
 }
 
+/** One cookie's value, or undefined if it is missing or malformed (a bad cookie must never break sign-in). */
 export function readCookie(req: Request, cookieName: string): string | undefined {
   const header = req.headers.cookie;
   if (!header) return undefined;
   for (const part of header.split(';')) {
     const [name, ...rest] = part.trim().split('=');
-    if (name === cookieName) return decodeURIComponent(rest.join('='));
+    if (name !== cookieName) continue;
+    try {
+      return decodeURIComponent(rest.join('=')) || undefined;
+    } catch {
+      return undefined;
+    }
   }
   return undefined;
 }
 
-export function readSessionToken(req: Request): string | undefined {
-  return readCookie(req, SESSION_COOKIE);
+/** Reads a token cookie: the `__Host-` one when cookies are secure, otherwise (or for older sessions) the plain one. */
+function readTokenCookie(req: Request, baseName: string): TokenCookie | undefined {
+  if (cookiesAreSecure(req)) {
+    const token = readCookie(req, HOST_PREFIX + baseName);
+    if (token) return { token, hostOnly: true };
+  }
+  const token = readCookie(req, baseName);
+  return token ? { token, hostOnly: false } : undefined;
 }
 
-function validSession(db: Database, token: string | undefined) {
-  if (!token) return undefined;
-  const tokenHash = hashToken(token);
+export function readSessionToken(req: Request): string | undefined {
+  return readTokenCookie(req, SESSION_COOKIE)?.token;
+}
+
+function validSession(db: Database, cookie: TokenCookie | undefined) {
+  if (!cookie) return undefined;
+  const tokenHash = hashToken(cookie.token);
   const session = db.data.sessions.find((s) => s.tokenHash === tokenHash);
-  return session && Date.parse(session.expiresAt) > Date.now() ? session : undefined;
+  if (!session || Date.parse(session.expiresAt) <= Date.now()) return undefined;
+  // A session issued in a __Host- cookie that turns up in a plain one was planted from elsewhere
+  if (session.hostOnly && !cookie.hostOnly) return undefined;
+  return session;
 }
 
 /** The signed-in, enabled account a session token belongs to, if the session is still valid. */
-export function userForToken(db: Database, token: string | undefined): StoredUser | undefined {
-  const session = validSession(db, token);
+export function userForToken(db: Database, cookie: TokenCookie | undefined): StoredUser | undefined {
+  const session = validSession(db, cookie);
   const user = session && db.findUser(session.userId);
   return user && !user.disabled ? user : undefined;
 }
 
+/** Cookies are Secure (and so `__Host-` prefixed) in production, over HTTPS, and whenever SameSite=None. */
+export function cookiesAreSecure(req: Request) {
+  return req.secure || process.env.NODE_ENV === 'production' || sameSiteSetting() === 'None';
+}
+
+const sameSiteSetting = () => ((process.env.COOKIE_SAMESITE || 'lax').toLowerCase() === 'none' ? 'None' : 'Lax');
+
 function cookieAttributes(req: Request) {
-  const sameSite = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase() === 'none' ? 'None' : 'Lax';
-  // SameSite=None requires Secure; browsers treat localhost as a secure context
-  const secure = req.secure || process.env.NODE_ENV === 'production' || sameSite === 'None';
-  return `Path=/; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
+  return `Path=/; HttpOnly; SameSite=${sameSiteSetting()}${cookiesAreSecure(req) ? '; Secure' : ''}`;
+}
+
+const cookieName = (req: Request, baseName: string) => (cookiesAreSecure(req) ? HOST_PREFIX + baseName : baseName);
+
+function clearCookie(req: Request, res: Response, baseName: string) {
+  // Clears the current name and, over HTTPS, the plain name used before the __Host- prefix
+  res.append('Set-Cookie', `${cookieName(req, baseName)}=; Max-Age=0; ${cookieAttributes(req)}`);
+  if (cookiesAreSecure(req)) res.append('Set-Cookie', `${baseName}=; Max-Age=0; ${cookieAttributes(req)}`);
 }
 
 export function setSessionCookie(req: Request, res: Response, token: string, maxAgeMs = SESSION_IDLE_MS) {
-  res.append('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${Math.floor(maxAgeMs / 1000)}; ${cookieAttributes(req)}`);
+  res.append('Set-Cookie', `${cookieName(req, SESSION_COOKIE)}=${encodeURIComponent(token)}; Max-Age=${Math.floor(maxAgeMs / 1000)}; ${cookieAttributes(req)}`);
 }
 
 export function clearSessionCookie(req: Request, res: Response) {
-  res.append('Set-Cookie', `${SESSION_COOKIE}=; Max-Age=0; ${cookieAttributes(req)}`);
+  clearCookie(req, res, SESSION_COOKIE);
 }
 
 /**
@@ -160,16 +208,21 @@ export function clearSessionCookie(req: Request, res: Response) {
 export const ADMIN_RETURN_COOKIE = 'sifted_admin_return';
 
 export function setAdminReturnCookie(req: Request, res: Response, token: string) {
-  res.append('Set-Cookie', `${ADMIN_RETURN_COOKIE}=${encodeURIComponent(token)}; Max-Age=${Math.floor(SESSION_IDLE_MS / 1000)}; ${cookieAttributes(req)}`);
+  res.append('Set-Cookie', `${cookieName(req, ADMIN_RETURN_COOKIE)}=${encodeURIComponent(token)}; Max-Age=${Math.floor(SESSION_IDLE_MS / 1000)}; ${cookieAttributes(req)}`);
 }
 
 export function clearAdminReturnCookie(req: Request, res: Response) {
-  res.append('Set-Cookie', `${ADMIN_RETURN_COOKIE}=; Max-Age=0; ${cookieAttributes(req)}`);
+  clearCookie(req, res, ADMIN_RETURN_COOKIE);
+}
+
+/** The administrator's token parked in the return cookie, if any. */
+export function readAdminReturnToken(req: Request): string | undefined {
+  return readTokenCookie(req, ADMIN_RETURN_COOKIE)?.token;
 }
 
 /** The administrator waiting in the return cookie, if there is one and their session is still valid. */
 export function adminWaitingToReturn(db: Database, req: Request): StoredUser | undefined {
-  const admin = userForToken(db, readCookie(req, ADMIN_RETURN_COOKIE));
+  const admin = userForToken(db, readTokenCookie(req, ADMIN_RETURN_COOKIE));
   return admin?.role === 'admin' ? admin : undefined;
 }
 
@@ -182,18 +235,24 @@ export function toPublicUser(user: StoredUser): UserAccount {
 
 export function authenticate(db: Database): RequestHandler {
   return (req, res, next) => {
-    const token = readSessionToken(req);
-    const session = validSession(db, token);
+    const cookie = readTokenCookie(req, SESSION_COOKIE);
+    const session = validSession(db, cookie);
     const user = session && db.findUser(session.userId);
-    if (session && user && !user.disabled) {
+    if (cookie && session && user && !user.disabled) {
       req.user = user;
       // Rolling renewal: activity pushes the idle expiry forward, never past the absolute limit
       const now = Date.now();
       const renewed = Math.min(now + SESSION_IDLE_MS, Date.parse(session.createdAt) + SESSION_MAX_AGE_MS);
-      if (renewed - Date.parse(session.expiresAt) >= SESSION_RENEW_INTERVAL_MS) {
-        session.expiresAt = new Date(renewed).toISOString();
-        setSessionCookie(req, res, token!, renewed - now);
-        db.save();
+      const due = renewed - Date.parse(session.expiresAt) >= SESSION_RENEW_INTERVAL_MS;
+      // A session from before the __Host- prefix moves to the prefixed cookie on its next request
+      const upgrade = cookiesAreSecure(req) && !cookie.hostOnly;
+      if (due || upgrade) {
+        if (due) {
+          session.expiresAt = new Date(renewed).toISOString();
+          db.save();
+        }
+        if (upgrade) res.append('Set-Cookie', `${SESSION_COOKIE}=; Max-Age=0; ${cookieAttributes(req)}`);
+        setSessionCookie(req, res, cookie.token, Date.parse(session.expiresAt) - now);
       }
     }
     next();
@@ -303,6 +362,11 @@ export function errorHandler() {
     }
     if ((err as any)?.type === 'entity.parse.failed') {
       res.status(400).json({ success: false, error: 'Malformed request' });
+      return;
+    }
+    // Serverless hosting: other instances kept saving first, even after several retries
+    if (err instanceof StorageConflictError) {
+      res.status(503).json({ success: false, error: 'The server is busy right now. Please try again in a moment.' });
       return;
     }
     console.error('Unhandled server error:', err);

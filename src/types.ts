@@ -169,6 +169,9 @@ export interface ApplicantSubmission {
   meetingConfirmed?: boolean;
   applicantResponseToInterview?: 'Accepted' | 'Declined' | 'Pending';
   hiddenByApplicant?: boolean; // applicant dismissed it from their own dashboard; professor still sees it
+  // True when Gemini graded the written answers; false when only the built-in grading ran.
+  // Missing on submissions stored by earlier versions.
+  gradedWithAi?: boolean;
 }
 
 export interface ProfessorProfile {

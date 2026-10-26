@@ -1,6 +1,8 @@
 {
-  "name": "Sifted - Graduate Applicant Screening Platform",
-  "description": "A modern, AI-powered graduate school admissions screening platform for professors. Features customized assessment building, adaptive testing, AI question generation, automated response grading, anti-cheating integrity monitoring, and detailed applicant interview recommendation analytics.",
+  "name": "Sifted - Graduate Admissions Screening",
+  "description": "Screening assessments for graduate admissions. Professors build tests from their own or shared questions, assign them to students, and review the graded results; students take the tests in a private portal. AI grading and question generation with Gemini are optional.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

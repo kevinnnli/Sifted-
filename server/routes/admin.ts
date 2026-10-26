@@ -182,7 +182,7 @@ export function adminRoutes(db: Database) {
     if (account.disabled) throw badRequest('This test account is disabled. Enable it first.');
     const adminToken = readSessionToken(req)!;
     account.lastLoginAt = new Date().toISOString();
-    const token = createSession(db, account.id);
+    const token = createSession(db, req, account.id);
     setSessionCookie(req, res, token);
     setAdminReturnCookie(req, res, adminToken);
     res.json({ success: true, user: toPublicUser(account) });

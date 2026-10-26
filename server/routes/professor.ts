@@ -73,23 +73,29 @@ export function professorRoutes(db: Database) {
     const submissions = db.data.submissions.filter((s) => assessmentIds.has(s.assessmentId));
     const invitations = db.data.invitations.filter((i) => i.professorId === professor.id);
 
-    // Only students connected to this professor (invited or submitted), never the whole student body
+    // Only students connected to this professor (invited or submitted), never the whole student body.
+    // A student's own name, university and programme are shown once they have started or submitted
+    // one of this professor's tests; before that, only what the professor typed (the email).
+    const engaged = new Set(
+      db.data.attempts.filter((a) => assessmentIds.has(a.assessmentId)).map((a) => a.studentId)
+    );
     const candidates = new Map<string, ProfessorCandidate>();
-    const addCandidate = (email: string, fallbackName?: string) => {
+    const addCandidate = (email: string, fallbackName: string | undefined, fromSubmission?: ApplicantSubmission) => {
       const key = email.toLowerCase();
-      if (candidates.has(key)) return;
+      if (candidates.has(key) && !fromSubmission) return;
       const account = db.findUserByEmail(key);
       const isStudent = account?.role === 'applicant';
+      const shared = fromSubmission || (isStudent && engaged.has(account!.id) ? account : undefined);
       candidates.set(key, {
         email: key,
-        name: (isStudent && account?.name) || fallbackName || key.split('@')[0],
-        university: isStudent ? account?.university : undefined,
-        degreeProgram: isStudent ? account?.degreeProgram : undefined,
+        name: (fromSubmission?.applicantName || (shared && account?.name)) || fallbackName || key.split('@')[0],
+        university: shared?.university,
+        degreeProgram: shared?.degreeProgram,
         registered: Boolean(isStudent),
       });
     };
     invitations.forEach((i) => addCandidate(i.applicantEmail, i.applicantName));
-    submissions.forEach((s) => addCandidate(s.applicantEmail, s.applicantName));
+    submissions.forEach((s) => addCandidate(s.applicantEmail, s.applicantName, s));
 
     res.json({
       success: true,
@@ -291,7 +297,8 @@ export function professorRoutes(db: Database) {
         assessmentId: assessment.id,
         professorId: professor.id,
         applicantEmail: email,
-        applicantName: account?.name || email.split('@')[0],
+        // The student's own name is shared with the professor once they start the test
+        applicantName: email.split('@')[0],
         assignedAt: new Date().toISOString(),
         status: 'pending',
         deadline,
@@ -331,7 +338,7 @@ export function professorRoutes(db: Database) {
       if (!isPlainObject(body.scoreOverrides)) throw badRequest('Invalid score overrides');
       const overrides: Record<string, number> = {};
       for (const [qid, value] of Object.entries(body.scoreOverrides)) {
-        const response = submission.responses[qid];
+        const response = Object.hasOwn(submission.responses, qid) ? submission.responses[qid] : undefined;
         if (!response) throw badRequest('Score override for an unknown question');
         overrides[qid] = requireNumber(value, 'Score', 0, response.maxScore);
       }

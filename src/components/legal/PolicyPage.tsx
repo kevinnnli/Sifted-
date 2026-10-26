@@ -22,7 +22,7 @@ export default function PolicyPage({ policy, site }: { policy: PolicyDocument; s
         Skip to content
       </a>
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <a href="/" aria-label="Sifted home">
             <Wordmark subtitle="Graduate admissions screening" />
           </a>
@@ -33,7 +33,7 @@ export default function PolicyPage({ policy, site }: { policy: PolicyDocument; s
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[14rem_1fr]">
+      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[14rem_1fr] lg:px-8">
         <nav aria-label="Policies" className="lg:sticky lg:top-8 lg:self-start">
           <h2 className="mb-3 font-sans text-xs font-semibold uppercase tracking-wider text-slate-600">Policies</h2>
           <ul className="space-y-1 text-sm">

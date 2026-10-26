@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Database } from '../db';
 import { AttemptLimiter, clearSessionCookie, requireRole, toPublicUser, verifyPassword } from '../security';
 import { eraseStudent } from '../services/accounts';
-import { applyProgress, attemptTiming, createAttempt, finalizeAttempt } from '../services/attempts';
+import { applyProgress, attemptTiming, createAttempt, finalizeAttempt, isBeingSubmitted, validateProgress } from '../services/attempts';
 import type { ExamAttempt } from '../types';
 import { asyncHandler, badRequest, conflict, forbidden, notFound, optionalEmail, optionalString, requireEnum, requireString } from '../validation';
 import { getStartBlocker, studentVerificationRequired, toAttemptView, toStudentInvitation, toStudentSubmission } from '../views';
@@ -61,9 +61,19 @@ export function studentRoutes(db: Database) {
           await finalizeAttempt(db, existing.id, { autoSubmitted: true });
           throw conflict('Your time for this test ran out, so it was submitted automatically.');
         }
-        if (req.body?.lockdown === true && !existing.lockdown) existing.lockdown = true;
-        db.save();
-        return res.json({ success: true, attempt: toAttemptView(db, existing, user) });
+        if (req.body?.lockdown === true && !existing.lockdown) {
+          const attemptId = existing.id;
+          await db.commit(
+            () => {
+              const current = db.data.attempts.find((a) => a.id === attemptId);
+              if (current) current.lockdown = true;
+            },
+            { attemptsOnly: true }
+          );
+        }
+        const resumed = db.data.attempts.find((a) => a.invitationId === invitation.id && a.studentId === user.id);
+        if (!resumed) throw conflict('You have already submitted this assessment.');
+        return res.json({ success: true, attempt: toAttemptView(db, resumed, db.findUser(user.id) || user) });
       }
 
       const blocker = getStartBlocker(db, invitation, user);
@@ -78,21 +88,29 @@ export function studentRoutes(db: Database) {
         degreeProgram: requireString(details.degreeProgram, 'Degree program', { max: 200 }),
         gpa: optionalString(details.gpa, 'GPA', 10),
       };
-      const attempt = createAttempt(db, {
-        invitationId: invitation.id,
-        assessmentId: invitation.assessmentId,
-        student: user,
-        lockdown: req.body?.lockdown === true,
-        details: attemptDetails,
+      const studentId = user.id;
+      const invitationId = invitation.id;
+      const lockdown = req.body?.lockdown === true;
+      // Looked up again inside the commit: with several server instances it may run on newer data
+      const attempt = await db.commit(() => {
+        const student = db.findUser(studentId);
+        const current = student && myInvitations(student.email).find((i) => i.id === invitationId);
+        if (!student || !current) throw notFound('Invitation not found');
+        // Started meanwhile from another tab: carry on with that one
+        const started = db.data.attempts.find((a) => a.invitationId === invitationId && a.studentId === studentId);
+        if (started) return started;
+        const blocked = getStartBlocker(db, current, student);
+        if (blocked) throw conflict(blocked);
+        const created = createAttempt(db, { invitationId, assessmentId: current.assessmentId, student, lockdown, details: attemptDetails });
+        current.status = 'in-progress';
+        current.startedAt = current.startedAt || created.startedAt;
+        // Remember the candidate details for next time
+        student.secondaryEmail = attemptDetails.secondaryEmail;
+        student.university = attemptDetails.university;
+        student.degreeProgram = attemptDetails.degreeProgram;
+        return created;
       });
-      invitation.status = 'in-progress';
-      invitation.startedAt = invitation.startedAt || attempt.startedAt;
-      // Remember the candidate details for next time
-      user.secondaryEmail = attemptDetails.secondaryEmail;
-      user.university = attemptDetails.university;
-      user.degreeProgram = attemptDetails.degreeProgram;
-      db.save();
-      res.status(201).json({ success: true, attempt: toAttemptView(db, attempt, user) });
+      res.status(201).json({ success: true, attempt: toAttemptView(db, attempt, db.findUser(studentId) || user) });
     })
   );
 
@@ -109,9 +127,23 @@ export function studentRoutes(db: Database) {
           submission: toStudentSubmission(db, submission),
         });
       }
-      applyProgress(db, attempt, req.body || {});
-      db.save();
-      res.json({ success: true, savedAt: attempt.updatedAt, serverNow: new Date().toISOString() });
+      // A submission of this test is being graded: it already has the final answers
+      if (isBeingSubmitted(db, attempt.id)) throw conflict('This test is being submitted.');
+      const progress = req.body || {};
+      validateProgress(progress);
+      const studentId = req.user!.id;
+      const attemptId = attempt.id;
+      // Only the test in progress changes, so only it is written (see Database.saveAttempts)
+      const saved = await db.commit(
+        () => {
+          const current = myAttempt(studentId, attemptId);
+          if (!current) throw notFound('This test is no longer in progress');
+          applyProgress(db, current, progress);
+          return current;
+        },
+        { attemptsOnly: true }
+      );
+      res.json({ success: true, savedAt: saved.updatedAt, serverNow: new Date().toISOString() });
     })
   );
 

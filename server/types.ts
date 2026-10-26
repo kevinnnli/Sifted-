@@ -20,6 +20,8 @@ export interface Session {
   userId: string;
   createdAt: string;
   expiresAt: string;
+  // Issued in a __Host- cookie (HTTPS); then only accepted from one. Absent on older sessions.
+  hostOnly?: boolean;
 }
 
 export interface ExamAttempt {
@@ -53,6 +55,8 @@ export interface DatabaseShape {
   attempts: ExamAttempt[];
   sessions: Session[];
   settings: { testAccounts?: 'on' | 'off' };
+  // Revision of the tests in progress stored above; a newer copy may be in the attempts file (see db.ts)
+  attemptsRevision?: number;
 }
 
 declare global {

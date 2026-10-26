@@ -4,7 +4,7 @@ import {
   FileText, 
   Plus, 
   Trash2, 
-  Sparkles, 
+  PenLine, 
   ShieldCheck, 
   Clock, 
   Check, 
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { Assessment, Question, QuestionType, DifficultyLevel, ProfessorProfile, IntegrityOptions } from '../types';
+import { ModalBehavior } from './ui/ModalBehavior';
 
 const DEFAULT_INTEGRITY_OPTIONS: IntegrityOptions = {
   fullScreenMode: true,
@@ -64,10 +65,11 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isPublished, setIsPublished] = useState<boolean>(activeAssessment?.isActive ?? activeAssessment?.isPublished ?? true);
 
-  const [title, setTitle] = useState(activeAssessment?.title || 'Fall 2026 PhD AI Research Screening');
-  const [description, setDescription] = useState(activeAssessment?.description || 'Custom technical screening exam evaluating machine learning theory, algorithms, and research intuition.');
+  // A new assessment starts blank (placeholders show examples), so nothing is published by accident
+  const [title, setTitle] = useState(activeAssessment?.title || '');
+  const [description, setDescription] = useState(activeAssessment?.description || '');
   const [researchGroup, setResearchGroup] = useState(activeAssessment?.researchGroup || currentProfessor.labName);
-  const [semester, setSemester] = useState(activeAssessment?.semester || 'Fall 2026 Admissions');
+  const [semester, setSemester] = useState(activeAssessment?.semester || '');
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(activeAssessment?.timeLimitMinutes || 60);
   const [isAdaptive, setIsAdaptive] = useState(activeAssessment?.isAdaptive ?? true);
   const [isScoreVisible, setIsScoreVisible] = useState(activeAssessment?.isScoreVisible ?? false);
@@ -121,10 +123,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     setActiveAssessmentId('new');
     setCurrentStep(1);
     setIsPublished(false);
-    setTitle('New Graduate Research Screening Exam');
-    setDescription('Comprehensive technical evaluation for incoming graduate school applicants.');
+    setTitle('');
+    setDescription('');
     setResearchGroup(currentProfessor.labName);
-    setSemester('Spring 2027 Admissions');
+    setSemester('');
     setTimeLimitMinutes(60);
     setIsAdaptive(true);
     setIsScoreVisible(false);
@@ -267,7 +269,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           {onOpenAssignModal && (
             <button
               onClick={() => (activeAssessmentId === 'new' ? handleSaveAndAssign() : onOpenAssignModal(activeAssessmentId))}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
+              className="bg-brand-700 hover:bg-brand-800 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
             >
               <Send className="w-4 h-4" />
               <span>Assign to Candidates</span>
@@ -324,7 +326,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="e.g. Fall 2026 PhD AI Research Fellowship Screening"
+                placeholder="e.g. Machine learning screening, autumn intake"
               />
             </div>
 
@@ -334,6 +336,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                placeholder="What the test covers and anything candidates should know before starting"
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
@@ -354,6 +357,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 type="text"
                 value={semester}
                 onChange={(e) => setSemester(e.target.value)}
+                placeholder="e.g. Autumn 2027 intake"
                 className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
@@ -393,8 +397,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 onClick={() => setShowAIGeneratorModal(true)}
                 className="bg-brand-600 hover:bg-brand-700 text-white px-3.5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
               >
-                <Sparkles className="w-3.5 h-3.5 text-brand-800" />
-                <span>AI Generate Question</span>
+                <PenLine className="w-3.5 h-3.5" aria-hidden />
+                <span>Draft with AI</span>
               </button>
             </div>
           </div>
@@ -404,7 +408,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               <div className="text-center py-12 border border-dashed border-slate-300 rounded-lg bg-slate-50 text-slate-600 shadow-sm">
                 <FileText className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                 <p className="text-sm font-medium">No questions currently in this assessment.</p>
-                <p className="text-xs mt-1">Click "Add from Bank" or "AI Generate Question" above to begin.</p>
+                <p className="text-xs mt-1">Choose "Add from Bank" or "Draft with AI" above to begin.</p>
               </div>
             ) : (
               currentQuestions.map((q, idx) => (
@@ -425,7 +429,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                         <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
                           {q.difficulty}
                         </span>
-                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-brand-100 text-brand-800 uppercase tracking-wider">
                           {q.points} pts
                         </span>
                       </div>
@@ -536,7 +540,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
           <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
-              <ShieldCheck className="w-5 h-5 text-emerald-700" />
+              <ShieldCheck className="w-5 h-5 text-brand-700" />
               <h3 className="text-base font-semibold text-slate-900">Integrity settings</h3>
             </div>
 
@@ -602,7 +606,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               <h3 className="text-base font-bold text-slate-900">Step 4: Review Assessment Summary</h3>
               <p className="text-xs text-slate-600">Verify all configuration parameters before publishing</p>
             </div>
-            <span className="text-xs font-bold px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Step 4 of 6</span>
+            <span className="text-xs font-bold px-2.5 py-1 rounded bg-brand-50 text-brand-700 border border-brand-100">Step 4 of 6</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -676,7 +680,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
           <div className={`p-6 rounded-lg border-2 transition-all ${
             isPublished
-              ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
+              ? 'bg-brand-50 border-brand-500 text-brand-900'
               : 'bg-amber-50 border-amber-500 text-amber-900'
           }`}>
             <span className="text-xs font-bold uppercase tracking-wider block mb-1">Current Status</span>
@@ -696,7 +700,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               className={`px-6 py-2.5 rounded-md font-bold text-xs shadow-sm transition-all flex items-center space-x-2 ${
                 isPublished
                   ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                  : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                  : 'bg-brand-700 hover:bg-brand-800 text-white'
               }`}
             >
               <span>{isPublished ? 'Switch to Draft (Unpublish)' : 'Publish Assessment Now'}</span>
@@ -723,7 +727,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       {/* STEP 6: Assign Applicants */}
       {currentStep === 6 && (
         <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-6 text-center max-w-2xl mx-auto">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-sm">
+          <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center mx-auto shadow-sm">
             <Send className="w-6 h-6" />
           </div>
 
@@ -747,7 +751,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             {onOpenAssignModal && (
               <button
                 onClick={handleSaveAndAssign}
-                className="w-full sm:w-auto bg-emerald-700 hover:bg-emerald-800 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2"
+                className="w-full sm:w-auto bg-brand-700 hover:bg-brand-800 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2"
               >
                 <Send className="w-4 h-4" />
                 <span>Save & Open Assign Applicants Dialog</span>
@@ -778,6 +782,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       {showQuestionBankModal && (
         <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-md border border-slate-200">
+            <ModalBehavior onClose={() => setShowQuestionBankModal(false)} />
             <div className="p-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Question Bank Pool</h3>
@@ -873,10 +878,15 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       {/* AI QUESTION GENERATOR MODAL */}
       {showAIGeneratorModal && (
         <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-md border border-brand-200">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-md border border-slate-200">
+            <ModalBehavior
+              onClose={() => {
+                setShowAIGeneratorModal(false);
+                if (onCloseAIGenerator) onCloseAIGenerator();
+              }}
+            />
             <div className="p-6 border-b border-slate-200 text-slate-900 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <Sparkles className="w-6 h-6 text-brand-800 animate-spin" style={{ animationDuration: '6s' }} />
                 <div>
                   <h3 className="text-lg font-semibold">Generate a question with AI</h3>
                   <p className="text-sm text-slate-600">Drafts a question with an answer and rubric for you to review and edit.</p>
@@ -982,8 +992,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                   disabled={aiGenerating}
                   className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-2 disabled:opacity-50"
                 >
-                  <Sparkles className={`w-4 h-4 ${aiGenerating ? 'animate-spin' : ''}`} />
-                  <span>{aiGenerating ? 'Generating…' : 'Generate question'}</span>
+                  <span>{aiGenerating ? 'Drafting…' : 'Draft question'}</span>
                 </button>
               </div>
 
@@ -1014,7 +1023,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                       </span>
                       <h4 className="font-bold text-sm text-slate-900">{aiGeneratedResult.title}</h4>
                     </div>
-                    <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded uppercase tracking-wider">
+                    <span className="text-xs font-bold text-brand-700 bg-brand-100 px-2 py-0.5 rounded uppercase tracking-wider">
                       {aiGeneratedResult.points} points
                     </span>
                   </div>
@@ -1032,7 +1041,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                         <span className="font-semibold text-slate-700">Generated Options:</span>
                         <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-700 bg-white p-3 rounded-md border border-brand-100 shadow-sm">
                           {aiGeneratedResult.options.map((opt, i) => (
-                            <li key={i} className={aiGeneratedResult.correctAnswers?.includes(opt) ? 'font-bold text-emerald-700' : ''}>
+                            <li key={i} className={aiGeneratedResult.correctAnswers?.includes(opt) ? 'font-bold text-brand-700' : ''}>
                               {opt} {aiGeneratedResult.correctAnswers?.includes(opt) ? '(Correct)' : ''}
                             </li>
                           ))}
@@ -1058,7 +1067,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                   <div className="flex justify-end pt-2">
                     <button
                       onClick={handleAddGeneratedQuestion}
-                      className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
+                      className="bg-brand-700 hover:bg-brand-800 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Insert into Assessment Pool</span>

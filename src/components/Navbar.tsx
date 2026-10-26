@@ -56,7 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentProfessor, activeTab, onS
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white">
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-3">
           <button onClick={() => onSelectTab('dashboard')} className="shrink-0 rounded-md text-left" aria-label="Sifted, go to dashboard">
             <Wordmark subtitle="Faculty workspace" />

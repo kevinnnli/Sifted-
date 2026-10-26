@@ -9,11 +9,14 @@ export const POLICY_LINKS = [
   { href: '/refunds', label: 'Refund Policy' },
 ];
 
-/** Footer with the policy links and cookie settings, shown on every page. */
-export function SiteFooter({ note }: { note?: React.ReactNode }) {
+/**
+ * Footer with the policy links and cookie settings, shown on every page. `width` matches the
+ * page's own content width so the footer lines up with it.
+ */
+export function SiteFooter({ note, width = 'max-w-6xl' }: { note?: React.ReactNode; width?: 'max-w-5xl' | 'max-w-6xl' | 'max-w-7xl' }) {
   return (
     <footer className="border-t border-slate-200 bg-white/60">
-      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-xs text-slate-600 sm:px-6 md:flex-row md:items-center md:justify-between">
+      <div className={`mx-auto flex ${width} flex-col gap-3 px-4 py-6 text-xs text-slate-600 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8`}>
         <div>
           <span className="font-serif text-sm font-semibold text-brand-900">Sifted</span>
           <span className="ml-2">Graduate admissions screening</span>

@@ -13,7 +13,7 @@ const STATUS = {
   Interview: {
     label: 'Invited to interview',
     title: 'You have been invited to an interview',
-    badge: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    badge: 'border-brand-200 bg-brand-50 text-brand-900',
   },
   Reject: {
     label: 'Not progressing',
@@ -118,8 +118,8 @@ export const SubmissionStatus: React.FC<SubmissionStatusProps> = ({ submission, 
                 aria-pressed={interview?.response === 'Accepted'}
                 className={
                   interview?.response === 'Accepted'
-                    ? 'rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white'
-                    : 'rounded-md border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50'
+                    ? 'rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white'
+                    : 'rounded-md border border-brand-600 bg-white px-4 py-2 text-sm font-semibold text-brand-800 hover:bg-brand-50'
                 }
               >
                 {interview?.response === 'Accepted' ? 'Accepted' : 'Accept interview'}

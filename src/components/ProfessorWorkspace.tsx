@@ -206,12 +206,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
                 onNavigateToTab={(tab) => setActiveTab(tab as ProfessorTab)}
                 onNavigateToAssessments={() => setActiveTab('assessments')}
                 onNavigateToQuestionBank={() => setActiveTab('questions')}
-                onOpenAIQuestionGenerator={() => {
-                  setShowAIGeneratorOnOpen(true);
-                  setActiveTab('assessments');
-                }}
                 onSelectSubmission={(sub) => setSelectedSubmissionId(sub.id)}
-                onOpenAssignModal={() => openAssignModal()}
               />
             )}
 
@@ -271,6 +266,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
       </main>
 
       <SiteFooter
+        width="max-w-7xl"
         note={aiConfigured === null ? 'Checking AI status…' : aiConfigured ? 'AI features available' : 'AI not configured; built-in grading only'}
       />
 

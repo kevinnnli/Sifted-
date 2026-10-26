@@ -11,6 +11,7 @@ import { SubmissionStatus } from './SubmissionStatus';
 import { EMAIL_PATTERN } from './examUtils';
 import { SiteFooter } from '../ui/SiteFooter';
 import { Wordmark } from '../ui/Wordmark';
+import { ModalBehavior } from '../ui/ModalBehavior';
 
 interface StudentPortalProps {
   user: UserAccount;
@@ -267,7 +268,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
         Skip to content
       </a>
       <header className="border-b border-slate-200 bg-white">
-        <div className={`mx-auto flex items-center justify-between gap-4 px-4 py-3 sm:px-6 ${step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'}`}>
+        <div className={`mx-auto flex items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8 ${step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'}`}>
           <Wordmark subtitle={step === 'testing' && attempt ? attempt.assessment.title : 'Student portal'} />
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-slate-600 sm:inline">{user.name}</span>
@@ -283,7 +284,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
         </div>
       </header>
 
-      <main id="main" className={`mx-auto w-full flex-1 space-y-8 px-4 pb-20 pt-8 sm:px-6 ${step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'}`}>
+      <main id="main" className={`mx-auto w-full flex-1 space-y-8 px-4 pb-20 pt-8 sm:px-6 lg:px-8 ${step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'}`}>
 
       {step === 'dashboard' && (
         <StudentDashboard
@@ -341,7 +342,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
         />
       )}
       </main>
-      <SiteFooter />
+      <SiteFooter width={step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'} />
     </div>
   );
 };
@@ -365,14 +366,6 @@ const AccountPanel: React.FC<{
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    dialogRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,15 +406,8 @@ const AccountPanel: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center" onClick={onClose}>
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="account-title"
-        onClick={(e) => e.stopPropagation()}
-        className="fade-in w-full max-w-lg rounded-xl bg-white shadow-xl outline-none"
-      >
+      <div onClick={(e) => e.stopPropagation()} className="fade-in w-full max-w-lg rounded-xl bg-white shadow-xl outline-none">
+        <ModalBehavior onClose={onClose} />
         <div className="flex items-start justify-between border-b border-slate-200 p-5">
           <div>
             <h2 id="account-title" className="text-xl font-semibold">

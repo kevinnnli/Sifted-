@@ -176,13 +176,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           {/* Summary Stats Row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0 shadow-sm">
+              <div className="w-12 h-12 rounded-md bg-brand-100 text-brand-700 flex items-center justify-center font-bold shrink-0 shadow-sm">
                 <Award className="w-6 h-6" />
               </div>
               <div>
                 <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Interview Invitation Rate</span>
                 <span className="text-2xl font-bold text-slate-900 block mt-0.5">{pct(interviewCount)}</span>
-                <span className="text-xs text-emerald-700 font-medium">
+                <span className="text-xs text-brand-700 font-medium">
                   {interviewCount} of {total} invited • {recommendedCount} AI-recommended
                 </span>
               </div>

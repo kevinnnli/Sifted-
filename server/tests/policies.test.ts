@@ -19,8 +19,10 @@ const text = (slug: string, site = { operator: null, contactEmail: null }) => {
 describe('policies describe the implementation', () => {
   test('the cookie policy names the cookies and storage keys the code uses', () => {
     const cookies = text('cookies');
-    assert.match(cookies, new RegExp(SESSION_COOKIE));
-    assert.match(cookies, new RegExp(ADMIN_RETURN_COOKIE));
+    // Over HTTPS the cookies carry the __Host- prefix; plain names are used in local development
+    assert.match(cookies, new RegExp(`__Host-${SESSION_COOKIE}`));
+    assert.match(cookies, new RegExp(`__Host-${ADMIN_RETURN_COOKIE}`));
+    assert.match(cookies, new RegExp(`named ${SESSION_COOKIE} and ${ADMIN_RETURN_COOKIE}`));
     assert.match(cookies, /sifted-exam-launch/);
     assert.match(cookies, /sifted-consent/);
   });

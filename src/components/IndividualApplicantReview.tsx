@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { notify } from '../notify';
 import { 
   ArrowLeft, 
-  Award, 
   CheckCircle2, 
   AlertTriangle, 
   ShieldAlert, 
-  Sparkles, 
   FileText, 
   Clock, 
   User, 
@@ -28,9 +26,11 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 import { api, errorMessage, ReviewPatch } from '../api';
-import { ApplicantSubmission, Question, ProfessorDecision, InterviewRecommendation } from '../types';
+import { ApplicantSubmission, Question, ProfessorDecision } from '../types';
 import { getEffectiveScore, getHireabilityBadgeStyle, getHireabilityShortText } from '../utils/grading';
 import { normalizeMeetingLink } from './ApplicantManagement';
+import { RecommendationTag } from './ProfessorDashboard';
+import { ModalBehavior } from './ui/ModalBehavior';
 
 interface IndividualApplicantReviewProps {
   submission: ApplicantSubmission;
@@ -137,19 +137,6 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
     }));
   const integrity = submission.integrityReport || { tabSwitchCount: 0, copyPasteAttempts: 0, aiGeneratedProbability: 0, integrityFlagged: false, notes: [] };
 
-  const getRecommendationBadge = (rec: InterviewRecommendation) => {
-    switch (rec) {
-      case 'Strongly Recommend Interview':
-        return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-emerald-100 text-emerald-700"><Award className="w-3.5 h-3.5 mr-1" /> Strongly Recommend</span>;
-      case 'Recommend Interview':
-        return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-brand-100 text-brand-700"><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Recommend</span>;
-      case 'Borderline':
-        return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-amber-100 text-amber-700"><AlertTriangle className="w-3.5 h-3.5 mr-1" /> Borderline</span>;
-      case 'Do Not Recommend':
-        return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-rose-100 text-rose-700"><ShieldAlert className="w-3.5 h-3.5 mr-1" /> Do Not Recommend</span>;
-    }
-  };
-
   return (
     <div className="space-y-8 pb-20">
       {/* Back Button & Top Bar */}
@@ -192,7 +179,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
             </p>
             <div className="flex items-center space-x-4 text-xs text-slate-600 pt-1">
               <span className="flex items-center"><Clock className="w-3.5 h-3.5 mr-1 text-brand-500" /> Time Spent: {Math.round(submission.totalTimeSpentSeconds / 60)} minutes</span>
-              <span className="flex items-center"><User className="w-3.5 h-3.5 mr-1 text-emerald-700" /> Status: {submission.status.toUpperCase()}</span>
+              <span className="flex items-center"><User className="w-3.5 h-3.5 mr-1 text-brand-700" /> Status: {submission.status.toUpperCase()}</span>
             </div>
           </div>
         </div>
@@ -202,7 +189,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
           <div className="text-center sm:text-right pr-4 sm:border-r border-slate-200 space-y-1">
             <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">Weighted Score</span>
             <div className={`text-3xl font-semibold ${
-              submission.overallScore >= 90 ? 'text-emerald-700' : submission.overallScore >= 80 ? 'text-brand-600' : submission.overallScore >= 70 ? 'text-amber-700' : 'text-rose-600'
+              submission.overallScore >= 90 ? 'text-brand-700' : submission.overallScore >= 80 ? 'text-brand-600' : submission.overallScore >= 70 ? 'text-amber-700' : 'text-rose-600'
             }`}>
               {submission.overallScore}%
             </div>
@@ -219,7 +206,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
           <div>
             <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1.5">Current Professor Status</span>
             <span className={`px-3 py-1 rounded-md text-xs font-bold block text-center uppercase ${
-              profDecision === 'Interview' ? 'bg-emerald-700 text-white shadow-sm' :
+              profDecision === 'Interview' ? 'bg-brand-700 text-white shadow-sm' :
               profDecision === 'Reject' ? 'bg-rose-600 text-white shadow-sm' :
               profDecision === 'Pending' || profDecision === 'Pending Professor Interview / Review' || profDecision === 'Hold for Review' || !profDecision ? 'bg-amber-500 text-slate-900 shadow-sm' :
               'bg-slate-200 text-slate-700'
@@ -229,7 +216,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
             {profDecision === 'Interview' && submission.applicantResponseToInterview && (
               <span className={`mt-1 px-2.5 py-0.5 rounded text-xs font-semibold block text-center border ${
                 submission.applicantResponseToInterview === 'Accepted'
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  ? 'bg-brand-50 text-brand-800 border-brand-300'
                   : submission.applicantResponseToInterview === 'Declined'
                   ? 'bg-rose-50 text-rose-800 border-rose-300'
                   : 'bg-slate-100 text-slate-700 border-slate-200'
@@ -244,10 +231,10 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-200 bg-white px-4 rounded-t-lg">
         {[
-          { id: 'overview', label: '1. AI Evaluation & Overview' },
-          { id: 'questions', label: '2. Question-by-Question Grading' },
-          { id: 'integrity', label: '3. Integrity' },
-          { id: 'briefing', label: '4. Interview Prep Briefing' },
+          { id: 'overview', label: 'Overview' },
+          { id: 'questions', label: 'Answers and scores' },
+          { id: 'integrity', label: 'Integrity' },
+          { id: 'briefing', label: 'Interview briefing' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -267,30 +254,27 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
-            {/* AI Interview Recommendation Box */}
+            {/* Advisory recommendation */}
             <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Sparkles className="w-5 h-5 text-brand-600" />
-                  <h3 className="text-base font-semibold text-slate-900">AI recommendation (advisory)</h3>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">Recommendation (advisory)</h3>
+                  <p className="text-xs text-slate-600">The decision is yours.</p>
                 </div>
-                {getRecommendationBadge(submission.interviewRecommendation)}
+                <RecommendationTag submission={submission} />
               </div>
 
               <div className="bg-slate-50 p-5 rounded-md border border-slate-200 space-y-2">
                 <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">
-                  Detailed Recommendation Explanation:
+                  Explanation
                 </span>
                 <p className="text-sm text-slate-800 leading-relaxed font-normal">
                   {submission.recommendationExplanation}
                 </p>
               </div>
 
-              <div className="bg-white text-slate-900 p-5 rounded-lg border border-slate-300 shadow-md text-xs space-y-2">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-brand-800" />
-                  <span className="block text-sm font-semibold text-slate-900">AI summary</span>
-                </div>
+              <div className="bg-white text-slate-900 p-5 rounded-md border border-slate-200 text-xs space-y-2">
+                <span className="block text-sm font-semibold text-slate-900">{submission.gradedWithAi ? 'AI summary' : 'Summary'}</span>
                 <p className="text-slate-700 font-normal leading-relaxed text-xs">{submission.aiSummary}</p>
               </div>
             </div>
@@ -309,7 +293,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                     <Tooltip contentStyle={{ backgroundColor: '#ffffff', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
                     <Bar dataKey="score" fill="#28656b" radius={[6, 6, 0, 0]} barSize={45}>
                       {topicData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.score >= 90 ? '#10B981' : entry.score >= 75 ? '#28656b' : '#F59E0B'} />
+                        <Cell key={`cell-${index}`} fill={entry.score >= 90 ? '#1e4549' : entry.score >= 75 ? '#28656b' : '#4f989e'} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -352,7 +336,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                   <button
                     onClick={() => handleSaveDecision('Interview')}
                     className={`p-3 rounded-md font-medium text-xs flex items-center justify-center space-x-2 transition-colors ${
-                      profDecision === 'Interview' ? 'bg-emerald-700 text-white shadow-sm' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                      profDecision === 'Interview' ? 'bg-brand-700 text-white shadow-sm' : 'bg-brand-50 text-brand-800 hover:bg-brand-100 border border-brand-200'
                     }`}
                   >
                     <Check className="w-4 h-4" />
@@ -382,22 +366,22 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               </div>
 
               {profDecision === 'Interview' && (
-                <div className="bg-emerald-50/80 p-4 rounded-lg border border-emerald-300 space-y-3 mt-3 fade-in">
+                <div className="bg-brand-50/80 p-4 rounded-lg border border-brand-300 space-y-3 mt-3 fade-in">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-900 flex items-center">
-                      <Calendar className="w-4 h-4 mr-1.5 text-emerald-700" />
+                    <span className="text-xs font-bold text-brand-900 flex items-center">
+                      <Calendar className="w-4 h-4 mr-1.5 text-brand-700" />
                       Set Meeting Date & Time (Professor Assigned)
                     </span>
-                    <span className="text-xs bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-bold uppercase">
+                    <span className="text-xs bg-brand-200 text-brand-900 px-2 py-0.5 rounded font-bold uppercase">
                       Status: Accepted
                     </span>
                   </div>
-                  <p className="text-xs text-emerald-800 leading-relaxed">
+                  <p className="text-xs text-brand-800 leading-relaxed">
                     When marked for interview, status changes to <strong>Accepted</strong>. As professor, you set the interview meeting schedule below:
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
-                      <label className="text-xs font-bold text-emerald-900 block mb-1">Meeting Date *</label>
+                      <label className="text-xs font-bold text-brand-900 block mb-1">Meeting Date *</label>
                       <input aria-label="Meeting Date"
                         type="date"
                         min={new Date().toISOString().split('T')[0]}
@@ -406,18 +390,18 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                           setMeetingDateInput(e.target.value);
                           if (e.target.value) saveSchedule({ interviewDate: e.target.value });
                         }}
-                        className="w-full bg-white border border-emerald-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full bg-white border border-brand-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                       />
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-emerald-900 block mb-1">Time Slot *</label>
+                      <label className="text-xs font-bold text-brand-900 block mb-1">Time Slot *</label>
                       <select aria-label="Time Slot"
                         value={meetingTimeInput || '10:00 AM EST'}
                         onChange={(e) => {
                           setMeetingTimeInput(e.target.value);
                           saveSchedule({ interviewTime: e.target.value });
                         }}
-                        className="w-full bg-white border border-emerald-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full bg-white border border-brand-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                       >
                         <option value="09:00 AM EST">09:00 AM EST (Morning Session)</option>
                         <option value="10:00 AM EST">10:00 AM EST (Mid-Morning)</option>
@@ -431,8 +415,8 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                   </div>
                   <div className="pt-1">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-emerald-900 flex items-center">
-                        <Video className="w-3.5 h-3.5 mr-1 text-emerald-700" />
+                      <label className="text-xs font-bold text-brand-900 flex items-center">
+                        <Video className="w-3.5 h-3.5 mr-1 text-brand-700" />
                         Meeting Video Link (saved when you leave the field)
                       </label>
                     </div>
@@ -448,7 +432,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                           saveSchedule({ meetingLink: link });
                         }
                       }}
-                      className="w-full bg-white border border-emerald-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full bg-white border border-brand-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   </div>
                 </div>
@@ -457,20 +441,24 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
 
             {/* Quick Integrity Summary Widget */}
             <div className={`p-5 rounded-lg border ${
-              integrity.integrityFlagged ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-300'
+              integrity.integrityFlagged ? 'bg-rose-50 border-rose-300' : 'bg-brand-50 border-brand-300'
             }`}>
               <div className="flex items-center space-x-2 mb-2">
                 {integrity.integrityFlagged ? (
                   <AlertTriangle className="w-5 h-5 text-rose-600" />
                 ) : (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-700" />
+                  <CheckCircle2 className="w-5 h-5 text-brand-700" />
                 )}
                 <h4 className="font-bold text-sm text-slate-900">
                   {integrity.integrityFlagged ? 'Integrity flags raised' : 'No integrity flags'}
                 </h4>
               </div>
               <p className="text-xs text-slate-700 font-medium">
-                AI-Generated probability: <span className="font-bold">{integrity.aiGeneratedProbability}%</span>.
+                {submission.gradedWithAi && (
+                  <>
+                    AI-written text estimate: <span className="font-bold">{integrity.aiGeneratedProbability}%</span>.{' '}
+                  </>
+                )}
                 Tab switches: <span className="font-bold">{integrity.tabSwitchCount}</span>.
               </p>
               <button
@@ -491,7 +479,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
             <div>
               <h3 className="text-base font-bold text-slate-900">Detailed Question Response Audit</h3>
               <p className="text-xs text-slate-600">
-                Review candidate answers against professor rubrics. You can manually override AI scores if desired.
+                Automatic scores for written answers are provisional. Compare each answer with your rubric and change any score.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -565,13 +553,13 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                         )}
                         {isOverridden && (
                           <span className="text-xs text-amber-700 font-bold">
-                            Professor override (AI: {resp.aiScore})
+                            Changed by you (automatic score: {resp.aiScore})
                           </span>
                         )}
                       </div>
                       <span className={`px-2.5 py-1 rounded-md text-xs font-bold shrink-0 ${
                         currentScore >= resp.maxScore
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-brand-100 text-brand-800'
                           : currentScore > 0
                           ? 'bg-amber-100 text-amber-800'
                           : 'bg-rose-100 text-rose-800'
@@ -627,13 +615,14 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
 
                       <div>
                         <span className="font-semibold text-slate-600 uppercase tracking-wider text-xs block mb-1">
-                          AI feedback:
+                          {submission.gradedWithAi ? 'AI feedback' : 'Automatic feedback'}
                         </span>
-                        <div className="bg-white p-3 rounded-md border border-slate-200 text-slate-800 font-normal leading-relaxed flex items-start space-x-2">
-                          <Sparkles className="w-4 h-4 text-brand-600 shrink-0 mt-0.5" />
+                        <div className="bg-white p-3 rounded-md border border-slate-200 text-slate-800 font-normal leading-relaxed">
                           <div>
                             <p>{resp.aiFeedback}</p>
-                            <span className="block text-xs text-slate-600 mt-1 font-medium" title="Automated rubric matching confidence percentage">AI Grading Confidence: {resp.aiConfidence}% (Automated Rubric Matching)</span>
+                            <span className="block text-xs text-slate-600 mt-1 font-medium">
+                              Grading confidence: {resp.aiConfidence}%{submission.gradedWithAi ? '' : ' (based on how many rubric concepts the answer mentions)'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -654,7 +643,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               <ShieldAlert className="w-6 h-6 text-brand-600" />
               <div>
                 <h3 className="text-base font-semibold text-slate-900">Integrity record</h3>
-                <p className="text-xs text-slate-600">Real-time session monitoring and Gemini LLM synthetic text signature analysis</p>
+                <p className="text-xs text-slate-600">Events recorded by the browser during the test{submission.gradedWithAi ? ', and an AI-written text estimate from the AI grading' : ''}.</p>
               </div>
             </div>
 
@@ -668,24 +657,26 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               </div>
 
               <div className="p-4 rounded-md bg-slate-50 border border-slate-200">
-                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">Bulk Clipboard Paste Events</span>
+                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">Blocked copy or paste attempts</span>
                 <span className="text-2xl font-bold text-slate-900 mt-1 block">
-                  {integrity.copyPasteAttempts} events
+                  {integrity.copyPasteAttempts}
                 </span>
-                <span className="text-xs text-slate-600 mt-0.5 block font-medium">Large multi-line insertions</span>
+                <span className="text-xs text-slate-600 mt-0.5 block font-medium">Copy, cut and paste are blocked when enabled for the test</span>
               </div>
 
-              <div className={`p-4 rounded-md border ${
-                integrity.aiGeneratedProbability > 50 ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-300'
-              }`}>
-                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">AI-Generated Probability</span>
-                <span className={`text-2xl font-bold mt-1 block ${
-                  integrity.aiGeneratedProbability > 50 ? 'text-rose-700' : 'text-emerald-700'
-                }`}>
-                  {integrity.aiGeneratedProbability}%
-                </span>
-                <span className="text-xs text-slate-600 mt-0.5 block font-medium">Gemini synthetic text analysis</span>
-              </div>
+              {submission.gradedWithAi ? (
+                <div className={`p-4 rounded-md border ${integrity.aiGeneratedProbability > 50 ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">AI-written text estimate</span>
+                  <span className="text-2xl font-bold mt-1 block text-slate-900">{integrity.aiGeneratedProbability}%</span>
+                  <span className="text-xs text-slate-600 mt-0.5 block font-medium">Estimated by Gemini. Indicative only, not proof.</span>
+                </div>
+              ) : (
+                <div className="p-4 rounded-md border bg-slate-50 border-slate-200">
+                  <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">AI-written text estimate</span>
+                  <span className="text-2xl font-bold mt-1 block text-slate-500">Not measured</span>
+                  <span className="text-xs text-slate-600 mt-0.5 block font-medium">AI grading did not run for this submission.</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 pt-2">
@@ -701,7 +692,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                     {note.includes('FLAGGED') ? (
                       <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                     ) : (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <CheckCircle2 className="w-4 h-4 text-brand-700 shrink-0" />
                     )}
                     <span>{note}</span>
                   </li>
@@ -717,9 +708,8 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
         <div className="bg-white p-6 md:p-8 rounded-lg border border-slate-200 shadow-sm space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div className="flex items-center space-x-3">
-              <Sparkles className="w-6 h-6 text-brand-600" />
               <div>
-                <h3 className="text-base font-bold text-slate-900">Faculty Interview Preparation Briefing</h3>
+                <h3 className="text-base font-bold text-slate-900">Interview briefing</h3>
                 <p className="text-sm text-slate-600">Notes to help you prepare for the interview with {submission.applicantName}.</p>
               </div>
             </div>
@@ -728,7 +718,6 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               disabled={generatingBriefing}
               className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors disabled:opacity-50"
             >
-              <Sparkles className={`w-3.5 h-3.5 ${generatingBriefing ? 'animate-spin' : ''}`} />
               <span>{generatingBriefing ? 'Writing…' : 'Write briefing'}</span>
             </button>
           </div>
@@ -738,7 +727,6 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               aiBriefing
             ) : (
               <div className="text-center py-8 text-slate-600">
-                <Sparkles className="w-8 h-8 mx-auto text-brand-800 mb-2" />
                 <p>Select “Write briefing” to prepare interview notes for this applicant.</p>
               </div>
             )}
@@ -750,27 +738,28 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
       {showInterviewModal && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50 fade-in" onClick={() => setShowInterviewModal(false)}>
           <div className="bg-white rounded-xl max-w-md w-full border border-slate-200 shadow-md overflow-hidden text-left" onClick={(e) => e.stopPropagation()}>
+            <ModalBehavior onClose={() => setShowInterviewModal(false)} />
             <div className="p-6 text-slate-900 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-400 text-slate-900 font-bold flex items-center justify-center text-base shrink-0">
-                  <Calendar className="w-5 h-5 text-emerald-800" />
+                <div className="w-10 h-10 rounded-full bg-brand-50 border border-brand-400 text-slate-900 font-bold flex items-center justify-center text-base shrink-0">
+                  <Calendar className="w-5 h-5 text-brand-800" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 tracking-tight">Set Interview Meeting Details</h3>
-                  <p className="text-xs text-emerald-800">Assign meeting link & schedule for {submission.applicantName}</p>
+                  <p className="text-xs text-brand-800">Assign meeting link & schedule for {submission.applicantName}</p>
                 </div>
               </div>
-              <button onClick={() => setShowInterviewModal(false)} className="rounded-md p-1 text-emerald-800 hover:text-slate-900 " aria-label="Close"><X className="h-5 w-5" aria-hidden /></button>
+              <button onClick={() => setShowInterviewModal(false)} className="rounded-md p-1 text-brand-800 hover:text-slate-900 " aria-label="Close"><X className="h-5 w-5" aria-hidden /></button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="bg-emerald-50 p-3.5 rounded-lg border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
+              <div className="bg-brand-50 p-3.5 rounded-lg border border-brand-200 text-xs text-brand-900 leading-relaxed">
                 You are marking <strong>{submission.applicantName}</strong> for an interview. Their status will change to <strong>Accepted</strong>. Please set the video meeting link and date below:
               </div>
               <div className="space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 flex items-center">
-                      <Video className="w-3.5 h-3.5 mr-1 text-emerald-700" />
+                      <Video className="w-3.5 h-3.5 mr-1 text-brand-700" />
                       Meeting Video Link (optional — can be added later)
                     </label>
                   </div>
@@ -779,7 +768,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                     placeholder="https://meet.google.com/..."
                     value={meetingLinkInput}
                     onChange={(e) => setMeetingLinkInput(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -789,7 +778,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                     min={new Date().toISOString().split('T')[0]}
                     value={meetingDateInput || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0]}
                     onChange={(e) => setMeetingDateInput(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -797,7 +786,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
                   <select aria-label="Time Slot"
                     value={meetingTimeInput}
                     onChange={(e) => setMeetingTimeInput(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="09:00 AM EST">09:00 AM EST (Morning Session)</option>
                     <option value="10:00 AM EST">10:00 AM EST (Mid-Morning)</option>
@@ -820,7 +809,7 @@ export const IndividualApplicantReview: React.FC<IndividualApplicantReviewProps>
               <button
                 onClick={handleConfirmInterviewSchedule}
                 disabled={saving}
-                className="disabled:opacity-50 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"
+                className="disabled:opacity-50 px-5 py-2 bg-brand-700 hover:bg-brand-800 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Confirm & Save Interview</span>

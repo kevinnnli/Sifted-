@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getConsent, OPTIONAL_CATEGORIES, saveConsent } from '../../consent';
+import { ModalBehavior } from './ModalBehavior';
 
 /**
  * Cookie notice and settings. Sifted uses only strictly necessary storage, so the notice informs
@@ -10,7 +11,6 @@ export function CookieNotice() {
   const [showBanner, setShowBanner] = useState(() => getConsent() === null);
   const [showSettings, setShowSettings] = useState(false);
   const [choices, setChoices] = useState<Record<string, boolean>>(() => ({ ...(getConsent()?.granted || {}) }));
-  const dialogRef = useRef<HTMLDivElement>(null);
   const hasOptional = OPTIONAL_CATEGORIES.length > 0;
 
   useEffect(() => {
@@ -22,13 +22,6 @@ export function CookieNotice() {
     return () => window.removeEventListener('sifted-open-cookie-settings', open);
   }, []);
 
-  useEffect(() => {
-    if (!showSettings) return;
-    dialogRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setShowSettings(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showSettings]);
 
   const decide = (granted: Record<string, boolean>) => {
     saveConsent(granted);
@@ -88,15 +81,8 @@ export function CookieNotice() {
 
       {showSettings && (
         <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-900/40 p-4 sm:items-center" onClick={() => setShowSettings(false)}>
-          <div
-            ref={dialogRef}
-            tabIndex={-1}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cookie-settings-title"
-            onClick={(e) => e.stopPropagation()}
-            className="fade-in w-full max-w-lg rounded-xl bg-white p-6 shadow-xl outline-none"
-          >
+          <div onClick={(e) => e.stopPropagation()} className="fade-in w-full max-w-lg rounded-xl bg-white p-6 shadow-xl outline-none">
+            <ModalBehavior onClose={() => setShowSettings(false)} />
             <h2 id="cookie-settings-title" className="text-xl font-semibold">
               Cookie settings
             </h2>

@@ -10,6 +10,7 @@ export const normalizeMeetingLink = (link: string) => {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 };
 import { getHireabilityBadgeStyle, getHireabilityShortText } from '../utils/grading';
+import { ModalBehavior } from './ui/ModalBehavior';
 
 interface ApplicantManagementProps {
   currentProfessor: ProfessorProfile;
@@ -99,7 +100,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
   const getRecommendationBadge = (rec: InterviewRecommendation) => {
     switch (rec) {
       case 'Strongly Recommend Interview':
-        return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-emerald-100 text-emerald-700"><Award className="w-3.5 h-3.5 mr-1" /> Strongly Recommend</span>;
+        return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-brand-100 text-brand-700"><Award className="w-3.5 h-3.5 mr-1" /> Strongly Recommend</span>;
       case 'Recommend Interview':
         return <span className="inline-flex items-center px-2 py-1 rounded uppercase text-xs font-bold bg-brand-100 text-brand-700"><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Recommend</span>;
       case 'Borderline':
@@ -129,7 +130,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
           {onOpenAssignModal && (
             <button 
               onClick={onOpenAssignModal}
-              className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-md text-xs font-semibold shadow-sm flex items-center space-x-1.5 transition-colors"
+              className="bg-brand-700 hover:bg-brand-800 text-white px-4 py-2 rounded-md text-xs font-semibold shadow-sm flex items-center space-x-1.5 transition-colors"
             >
               <Send className="w-3.5 h-3.5" />
               <span>Assign Test to Accounts</span>
@@ -250,7 +251,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                     <td className="py-4 px-6">
                       <div className="flex flex-col items-start space-y-1">
                         <span className={`text-base font-bold ${
-                          sub.overallScore >= 90 ? 'text-emerald-700' : sub.overallScore >= 80 ? 'text-brand-600' : sub.overallScore >= 70 ? 'text-amber-700' : 'text-red-600'
+                          sub.overallScore >= 90 ? 'text-brand-700' : sub.overallScore >= 80 ? 'text-brand-600' : sub.overallScore >= 70 ? 'text-amber-700' : 'text-red-600'
                         }`}>
                           {sub.overallScore}%
                         </span>
@@ -274,14 +275,14 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
-                          <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-700" aria-hidden /> No flags
+                          <CheckCircle2 className="w-3 h-3 mr-1 text-brand-700" aria-hidden /> No flags
                         </span>
                       )}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex flex-col gap-1 items-start">
                         <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
-                          sub.professorDecision === 'Interview' ? 'bg-emerald-700 text-white' :
+                          sub.professorDecision === 'Interview' ? 'bg-brand-700 text-white' :
                           sub.professorDecision === 'Reject' ? 'bg-rose-600 text-white' :
                           sub.professorDecision === 'Pending' || sub.professorDecision === 'Pending Professor Interview' || sub.professorDecision === 'Pending Professor Interview / Review' || sub.professorDecision === 'Hold for Review' || !sub.professorDecision ? 'bg-amber-500 text-slate-900' :
                           'bg-slate-200 text-slate-700'
@@ -291,7 +292,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                         {sub.professorDecision === 'Interview' && sub.applicantResponseToInterview && (
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
                             sub.applicantResponseToInterview === 'Accepted'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                              ? 'bg-brand-50 text-brand-700 border-brand-300'
                               : sub.applicantResponseToInterview === 'Declined'
                               ? 'bg-rose-50 text-rose-700 border-rose-300'
                               : 'bg-slate-100 text-slate-600 border-slate-200'
@@ -317,7 +318,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                             setMeetingLink(sub.meetingLink || '');
                             setSchedulingSub(sub);
                           }}
-                          className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-md border border-emerald-300 transition-colors flex items-center space-x-1"
+                          className="text-xs font-bold text-brand-700 hover:text-brand-900 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-md border border-brand-300 transition-colors flex items-center space-x-1"
                           title="Schedule Interview with Candidate"
                         >
                           <Calendar className="w-3.5 h-3.5" />
@@ -373,9 +374,9 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                                   setMeetingLink(sub.meetingLink || '');
                                   setSchedulingSub(sub);
                                 }}
-                                className="w-full px-4 py-2 text-xs text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 font-bold"
+                                className="w-full px-4 py-2 text-xs text-brand-700 hover:bg-brand-50 flex items-center space-x-2 font-bold"
                               >
-                                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                                <Calendar className="w-3.5 h-3.5 text-brand-700" />
                                 <span>Schedule Interview</span>
                               </button>
                               {onRemoveSubmission && (
@@ -408,8 +409,8 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
 
       {/* Notification Toast */}
       {notification && (
-        <div className="fixed bottom-6 right-6 bg-white text-slate-900 px-5 py-3 rounded-lg shadow-md border border-emerald-500 flex items-center space-x-3 z-50">
-          <CheckCircle2 className="w-5 h-5 text-emerald-800 shrink-0" />
+        <div className="fixed bottom-6 right-6 bg-white text-slate-900 px-5 py-3 rounded-lg shadow-md border border-brand-500 flex items-center space-x-3 z-50">
+          <CheckCircle2 className="w-5 h-5 text-brand-800 shrink-0" />
           <span className="text-xs font-semibold">{notification}</span>
         </div>
       )}
@@ -418,27 +419,28 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
       {schedulingSub && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50 fade-in" onClick={() => setSchedulingSub(null)}>
           <div className="bg-white rounded-xl max-w-md w-full border border-slate-200 shadow-md overflow-hidden text-left" onClick={(e) => e.stopPropagation()}>
+            <ModalBehavior onClose={() => setSchedulingSub(null)} />
             <div className="p-6 text-slate-900 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-400 text-slate-900 font-bold flex items-center justify-center text-base shrink-0">
-                  <Calendar className="w-5 h-5 text-emerald-800" />
+                <div className="w-10 h-10 rounded-full bg-brand-50 border border-brand-400 text-slate-900 font-bold flex items-center justify-center text-base shrink-0">
+                  <Calendar className="w-5 h-5 text-brand-800" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 tracking-tight">Set Interview Meeting Date</h3>
-                  <p className="text-xs text-emerald-800">Mark student Accepted & assign meeting schedule</p>
+                  <p className="text-xs text-brand-800">Mark student Accepted & assign meeting schedule</p>
                 </div>
               </div>
-              <button onClick={() => setSchedulingSub(null)} className="rounded-md p-1 text-emerald-800 hover:text-slate-900 " aria-label="Close"><X className="h-5 w-5" aria-hidden /></button>
+              <button onClick={() => setSchedulingSub(null)} className="rounded-md p-1 text-brand-800 hover:text-slate-900 " aria-label="Close"><X className="h-5 w-5" aria-hidden /></button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="bg-emerald-50 p-3.5 rounded-lg border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
+              <div className="bg-brand-50 p-3.5 rounded-lg border border-brand-200 text-xs text-brand-900 leading-relaxed">
                 You are marking <strong>{schedulingSub.applicantName}</strong> for an interview. Their status will change to <strong>Accepted</strong>. Please select the mandatory meeting date and time slot below:
               </div>
               <div className="space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 flex items-center">
-                      <Video className="w-3.5 h-3.5 mr-1 text-emerald-700" />
+                      <Video className="w-3.5 h-3.5 mr-1 text-brand-700" />
                       Meeting Video Link (optional — can be added later)
                     </label>
                   </div>
@@ -447,7 +449,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                     placeholder="https://meet.google.com/..."
                     value={meetingLink}
                     onChange={(e) => setMeetingLink(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -457,7 +459,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                     min={new Date().toISOString().split('T')[0]}
                     value={meetingDate}
                     onChange={(e) => setMeetingDate(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div>
@@ -465,7 +467,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                   <select aria-label="Time Slot"
                     value={meetingTime}
                     onChange={(e) => setMeetingTime(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="09:00 AM EST">09:00 AM EST (Morning Session)</option>
                     <option value="10:00 AM EST">10:00 AM EST (Mid-Morning)</option>
@@ -500,7 +502,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
                   showNotification(`Interview scheduled for ${sub.applicantName} on ${chosenDate} at ${meetingTime}.`, 5000);
                   setSchedulingSub(null);
                 }}
-                className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"
+                className="px-5 py-2 bg-brand-700 hover:bg-brand-800 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center space-x-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Set Accepted Status & Save Date</span>
@@ -514,6 +516,7 @@ export const ApplicantManagement: React.FC<ApplicantManagementProps> = ({
       {profileModalSub && (
         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50 fade-in">
           <div id="student-profile-modal" className="bg-white rounded-xl max-w-xl w-full border border-slate-200 shadow-md overflow-hidden">
+            <ModalBehavior onClose={() => setProfileModalSub(null)} />
             <div className="p-6 text-slate-900 flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 rounded-full bg-brand-50 border-2 border-brand-400 text-slate-900 font-bold flex items-center justify-center text-lg">

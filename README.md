@@ -14,7 +14,7 @@ View your app in AI Studio: https://ai.studio/apps/46e38ab8-3fb3-4373-9cd0-20eba
    - `GEMINI_API_KEY` (optional): enables AI feedback and question generation
 3. Run the app: `npm run dev`, then open http://localhost:3000 and sign in with your admin email and password.
 
-To try the app with sample data, also set `SEED_DEMO_DATA=true` and `DEMO_PASSWORD=<8+ characters>` before the first run. Every sample account (for example `evance@cs.university.edu` or `alex.chen@stanford.edu`) then signs in with that password.
+To try the app with sample data, also set `SEED_DEMO_DATA=true` and `DEMO_PASSWORD=<8+ characters>` before the first run. Every sample account (for example `evance@cs.demo-university.example` or `alex.chen@north.demo-university.example`) then signs in with that password.
 
 ## Deploy to Vercel
 
@@ -26,6 +26,8 @@ The repository includes `vercel.json`, so import it into Vercel as-is (no framew
 
 Without step 1 the site still runs, but accounts and results disappear whenever Vercel restarts the server; the admin portal shows a warning while that's the case.
 
+On Vercel every change from every server instance goes through one shared Redis record, so large simultaneous exams queue for seconds (see the measurements in [`docs/privacy-and-security.md`](docs/privacy-and-security.md#4-performance-and-capacity)). For big cohorts, a single server with local file storage (`npm run build && npm start`, see Configuration) is considerably faster.
+
 ## Accounts and access
 
 | Role | How the account is created | What it can see |
@@ -36,7 +38,8 @@ Without step 1 the site still runs, but accounts and results disappear whenever 
 
 - New students must be verified by the administrator before they can see assigned tests (set `STUDENT_VERIFICATION=auto` to skip this).
 - Tests run on the server: it holds the clock, the question order and the answer keys, saves progress as the student goes, grades on submission, and auto-submits when time (plus grace) runs out. A refresh or a lost connection resumes the same attempt.
-- Sessions use secure, HTTP-only cookies. They end after 7 days without activity and at most 30 days after sign-in; using the site extends them. Passwords are hashed with scrypt, sign-in is rate-limited, and every API route checks the caller's role and ownership.
+- Sessions use secure, HTTP-only `__Host-` cookies over HTTPS. They end after 7 days without activity and at most 30 days after sign-in; using the site extends them, and taking or submitting a test never ends them. Passwords are hashed with scrypt, sign-in is rate-limited, and every API route checks the caller's role and ownership.
+- Professors see a student's name, university and programme only once the student starts one of their tests.
 - Students can delete their account and all of their submissions from **My account**.
 
 See [`docs/privacy-and-security.md`](docs/privacy-and-security.md) for the security architecture, the personal-data inventory, measured performance and known limits.
@@ -69,7 +72,7 @@ All settings are documented in [`.env.example`](.env.example). The ones you are 
 | `STUDENT_VERIFICATION=auto` | Let students see their tests without admin verification |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | AI features |
 | `SEED_DEMO_DATA`, `DEMO_PASSWORD` | Sample data for a new database |
-| `DATABASE_FILE` | Where data is stored (default `./database.json`) |
+| `DATABASE_FILE` | Where data is stored (default `./database.json`). Tests in progress are also kept next to it in `database.attempts.json`; back up both. |
 | `SITE_OPERATOR`, `SITE_CONTACT_EMAIL` | Who runs the deployment, shown in the policies |
 | `AI_TIMEOUT_MS` | Upper limit for one AI call (default 20000) |
 | `ALLOW_EMBEDDING=true`, `COOKIE_SAMESITE=none` | Only for iframe previews such as AI Studio (HTTPS required) |
@@ -86,5 +89,6 @@ Databases created by earlier versions had no passwords. On first start they are 
 - `npm run build` / `npm start`: production build and server
 - `npm run build:vercel`: the Vercel build (used automatically by `vercel.json`)
 - `npm run lint`: type-check
-- `npm test`: server tests: authentication, account isolation, sessions, deletion, storage
+- `npm test`: server tests: authentication, account isolation, sessions and cookies, deletion, storage, several Vercel instances sharing one store
+- `node --import tsx scripts/load-test.ts`: load test against a local production build (run `npm run build` first; add `--vercel 3` after `npm run build:vercel` to simulate three Vercel instances). Never point it at a live deployment.
 

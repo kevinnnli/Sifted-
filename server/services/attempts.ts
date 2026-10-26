@@ -96,18 +96,26 @@ export function attemptTiming(db: Database, attempt: ExamAttempt) {
   };
 }
 
+/** Rejects a malformed autosave before anything is changed, so a bad request never half-applies. */
+export function validateProgress(progress: Partial<AttemptProgress>) {
+  if (progress.responses === undefined) return;
+  if (typeof progress.responses !== 'object' || progress.responses === null || Array.isArray(progress.responses)) throw badRequest('Invalid answers');
+  for (const value of Object.values(progress.responses)) {
+    if (typeof value === 'string' && value.length > MAX_ANSWER_LENGTH) throw badRequest('An answer is too long');
+  }
+}
+
 /**
  * Applies an autosave from the browser. Only answers to this attempt's questions are accepted,
  * multiple-choice answers must be one of the offered options, and integrity counters can only go up.
  */
 export function applyProgress(db: Database, attempt: ExamAttempt, progress: Partial<AttemptProgress>) {
-  if (progress.responses !== undefined) {
-    if (typeof progress.responses !== 'object' || progress.responses === null) throw badRequest('Invalid answers');
+  validateProgress(progress);
+  if (progress.responses) {
     for (const qid of attempt.questionOrder) {
       if (!(qid in progress.responses)) continue;
       const value = progress.responses[qid];
       if (typeof value !== 'string') continue;
-      if (value.length > MAX_ANSWER_LENGTH) throw badRequest('An answer is too long');
       const options = attempt.optionOrders[qid];
       if (options && value !== '' && !options.includes(value)) continue;
       attempt.responses[qid] = value;
@@ -141,13 +149,23 @@ export function applyProgress(db: Database, attempt: ExamAttempt, progress: Part
   attempt.updatedAt = new Date().toISOString();
 }
 
-const inFlight = new Map<string, Promise<ApplicantSubmission>>();
+// Submissions being graded, per database
+const inFlightByDb = new WeakMap<Database, Map<string, Promise<ApplicantSubmission>>>();
+const inFlightFor = (db: Database) => {
+  let map = inFlightByDb.get(db);
+  if (!map) inFlightByDb.set(db, (map = new Map()));
+  return map;
+};
+
+/** True while an attempt is being graded and stored; autosaves for it are refused meanwhile. */
+export const isBeingSubmitted = (db: Database, attemptId: string) => inFlightFor(db).has(attemptId);
 
 /**
  * Grades an attempt on the server and turns it into a submission. Concurrent calls for the same
  * attempt (e.g. a manual submit racing the expiry sweep) share one result.
  */
 export function finalizeAttempt(db: Database, attemptId: string, opts: { autoSubmitted: boolean; skipAi?: boolean }): Promise<ApplicantSubmission> {
+  const inFlight = inFlightFor(db);
   const existing = inFlight.get(attemptId);
   if (existing) return existing;
   const promise = gradeAndStore(db, attemptId, opts).finally(() => inFlight.delete(attemptId));
@@ -273,6 +291,7 @@ async function gradeAndStore(db: Database, attemptId: string, opts: { autoSubmit
     },
     professorNotes: '',
     professorDecision: 'Pending',
+    gradedWithAi: ai !== null,
   };
 
   // Re-total with any AI per-question scores, then derive the tier from the final score
@@ -288,17 +307,24 @@ async function gradeAndStore(db: Database, attemptId: string, opts: { autoSubmit
     submission.interviewRecommendation = 'Do Not Recommend';
   }
 
-  // The data may have changed while waiting for the AI: re-check before storing
-  if (!db.data.attempts.some((a) => a.id === attemptId)) throw badRequest('This test has already been submitted');
-  db.data.attempts = db.data.attempts.filter((a) => a.id !== attemptId);
-  db.data.submissions.unshift(submission);
-  const invitation = db.data.invitations.find((i) => i.id === attempt.invitationId);
-  if (invitation) {
-    invitation.status = 'completed';
-    invitation.submittedAt = finishedAt.toISOString();
-  }
-  db.save();
-  return submission;
+  // Store it. The data may have changed while the AI was grading (and, with a remote store, another
+  // instance may save first, in which case this runs again on the newer data).
+  return db.commit(() => {
+    if (!db.data.attempts.some((a) => a.id === attemptId)) {
+      // Submitted meanwhile from another tab or server instance: that submission stands
+      const earlier = db.data.submissions.find((s) => s.invitationId === attempt.invitationId && s.studentId === attempt.studentId);
+      if (earlier) return earlier;
+      throw badRequest('This test has already been submitted');
+    }
+    db.data.attempts = db.data.attempts.filter((a) => a.id !== attemptId);
+    db.data.submissions.unshift(submission);
+    const invitation = db.data.invitations.find((i) => i.id === attempt.invitationId);
+    if (invitation) {
+      invitation.status = 'completed';
+      invitation.submittedAt = finishedAt.toISOString();
+    }
+    return submission;
+  });
 }
 
 /** Submits attempts whose time (plus grace and network slack) ran out while the student was away. */

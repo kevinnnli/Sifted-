@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { asButton } from './ui/a11y';
 import { notify } from '../notify';
-import { Database, Search, Plus, FileText, Globe, Lock, User, Sparkles, Trash2, Edit3, X } from 'lucide-react';
+import { Database, Search, Plus, FileText, Globe, Lock, User, PenLine, Trash2, Edit3, X } from 'lucide-react';
 import { Question, TopicCategory, DifficultyLevel, QuestionType, ProfessorProfile } from '../types';
+import { ModalBehavior } from './ui/ModalBehavior';
 
 interface QuestionBankProps {
   currentProfessor?: ProfessorProfile;
@@ -212,8 +213,8 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
             onClick={onOpenAIGenerator}
             className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2.5 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-2"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>AI Generate New Question</span>
+            <PenLine className="w-4 h-4" aria-hidden />
+            <span>Draft a question with AI</span>
           </button>
         </div>
       </div>
@@ -392,7 +393,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                       <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
                         {q.difficulty}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-brand-100 text-brand-800 uppercase tracking-wider">
                         {q.points} pts
                       </span>
                       <span className="px-2 py-0.5 rounded text-xs font-semibold bg-brand-100 text-brand-800 uppercase tracking-wider">
@@ -470,7 +471,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                         </span>
                         <ul className="list-disc pl-5 space-y-1 text-slate-700 bg-white p-3 rounded-md border border-slate-200 shadow-sm">
                           {q.options.map((opt, i) => (
-                            <li key={i} className={q.correctAnswers?.includes(opt) ? 'font-bold text-emerald-700' : ''}>
+                            <li key={i} className={q.correctAnswers?.includes(opt) ? 'font-bold text-brand-700' : ''}>
                               {opt} {q.correctAnswers?.includes(opt) ? '(Correct)' : ''}
                             </li>
                           ))}
@@ -520,6 +521,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
       {showManualModal && (
         <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-md border border-slate-200">
+            <ModalBehavior onClose={() => setShowManualModal(false)} />
             <div className="p-6 border-b border-slate-200 bg-white text-slate-900 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold">{editingQuestionId ? 'Edit Screening Question' : 'Create Custom Screening Question'}</h3>
@@ -660,7 +662,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                           name="correct-option"
                           checked={manualCorrectIndex === i}
                           onChange={() => setManualCorrectIndex(i)}
-                          className="text-emerald-700"
+                          className="text-brand-700"
                           title="Mark as correct answer"
                         />
                         <span className="w-5 font-bold text-slate-600">{String.fromCharCode(65 + i)}.</span>
@@ -670,7 +672,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                           onChange={(e) => setManualOptions(manualOptions.map((o, j) => (j === i ? e.target.value : o)))}
                           placeholder={`Option ${String.fromCharCode(65 + i)}`}
                           className={`flex-1 px-3 py-2 bg-white border rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500 ${
-                            manualCorrectIndex === i ? 'border-emerald-500' : 'border-slate-300'
+                            manualCorrectIndex === i ? 'border-brand-500' : 'border-slate-300'
                           }`}
                         />
                         <button

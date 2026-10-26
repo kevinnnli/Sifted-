@@ -399,10 +399,6 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
       const { submission } = await api.student.submitAttempt(attempt.id, { ...buildProgress(), auto: isAutoSubmit });
       finishedRef.current = true;
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
-      try {
-      } catch {
-        // decorative only
-      }
       onSubmitted(submission);
     } catch (e) {
       submittingRef.current = false;
@@ -433,10 +429,10 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
         <div className="flex items-center space-x-3">
           <span className={`flex items-center space-x-1.5 px-2.5 py-1 rounded font-bold border ${
             isLockdownActive 
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-xs' 
+              ? 'bg-brand-50 text-brand-800 border-brand-200 shadow-xs' 
               : 'bg-slate-100 text-slate-700 border-slate-300'
           }`}>
-            <span aria-hidden className={`w-2 h-2 rounded-full inline-block mr-1 ${isLockdownActive ? 'bg-emerald-700' : 'bg-slate-400'}`} />
+            <span aria-hidden className={`w-2 h-2 rounded-full inline-block mr-1 ${isLockdownActive ? 'bg-brand-700' : 'bg-slate-400'}`} />
             {isLockdownActive ? 'Full-screen test mode' : 'Integrity monitoring on'}
           </span>
           <span className="text-slate-600 hidden lg:inline">
@@ -449,7 +445,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               saveState === 'error'
                 ? 'bg-rose-50 text-rose-800 border-rose-600'
                 : saveState === 'saved'
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                ? 'bg-brand-50 text-brand-800 border-brand-200'
                 : 'bg-slate-100 text-slate-700 border-slate-300'
             }`}
             role="status"
@@ -462,7 +458,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             <span className={`px-2 py-0.5 rounded font-bold text-xs ${
               tabSwitches + copyPasteAttempts > 0 
                 ? 'bg-rose-50 text-rose-800 border border-rose-600' 
-                : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-brand-50 text-brand-800 border border-brand-200'
             }`}>
               {tabSwitches + copyPasteAttempts === 0 ? 'None' : tabSwitches + copyPasteAttempts}
             </span>
@@ -605,7 +601,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             </div>
             <div className="bg-paper p-3 rounded border border-slate-200 text-right font-mono space-y-1">
               <div className="text-xs text-slate-600 min-h-[16px]">{calcInput || '0'}</div>
-              <div className="text-xl font-bold text-emerald-800 overflow-x-auto min-h-[28px]">{calcResult || calcInput || '0'}</div>
+              <div className="text-xl font-bold text-brand-800 overflow-x-auto min-h-[28px]">{calcResult || calcInput || '0'}</div>
             </div>
             <div className="grid grid-cols-5 gap-1.5 text-xs font-mono font-bold">
               {['C', 'CE', '(', ')', '√', '7', '8', '9', '/', 'x²', '4', '5', '6', '*', '%', '1', '2', '3', '-', '.', '0', '00', '+', '='].map((btn, idx) => (
@@ -673,7 +669,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               <div className="text-amber-800">w = (XᵀX + λI)⁻¹ Xᵀy</div>
             </div>
             <div className="bg-paper p-4 rounded border border-slate-200 space-y-2 font-mono">
-              <div className="text-emerald-800 font-bold uppercase text-xs border-b border-slate-200 pb-1">Asymptotic Big-O Complexity</div>
+              <div className="text-brand-800 font-bold uppercase text-xs border-b border-slate-200 pb-1">Asymptotic Big-O Complexity</div>
               <div className="text-slate-700">Merge Sort: O(N log N)</div>
               <div className="text-slate-700">Quick Sort (Avg): O(N log N)</div>
               <div className="text-slate-700">Matrix Mult (Naive): O(N³)</div>
@@ -713,12 +709,12 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               <button
                 onClick={() => handleSubmitAssessment()}
                 disabled={isGrading}
-                className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-2"
+                className="px-6 py-2 rounded-md font-bold text-xs bg-brand-700 hover:bg-brand-800 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-2"
               >
                 {isGrading ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>AI Grading...</span>
+                    <span>Submitting…</span>
                   </>
                 ) : (
                   <>
@@ -741,12 +737,12 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             </div>
             <div 
               onClick={() => setReviewFilter('all')}
-              className="p-4 rounded-lg border bg-emerald-50/50 border-emerald-200 cursor-pointer"
+              className="p-4 rounded-lg border bg-brand-50/50 border-brand-200 cursor-pointer"
             >
-              <span className="text-xs font-bold text-emerald-700 uppercase block flex items-center gap-1">
+              <span className="text-xs font-bold text-brand-700 uppercase block flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Answered
               </span>
-              <span className="text-2xl font-semibold text-emerald-700">
+              <span className="text-2xl font-semibold text-brand-700">
                 {examQuestions.filter(q => isQuestionAnswered(q.id)).length}
               </span>
             </div>
@@ -831,7 +827,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                       <h4 className="text-sm font-bold text-slate-900 mt-2 line-clamp-2">{q.title}</h4>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                      <span className={`font-bold ${answered ? 'text-emerald-700 flex items-center gap-1' : 'text-rose-600 flex items-center gap-1'}`}>
+                      <span className={`font-bold ${answered ? 'text-brand-700 flex items-center gap-1' : 'text-rose-600 flex items-center gap-1'}`}>
                         {answered ? <><CheckCircle2 className="w-3.5 h-3.5" /> Answered</> : <><AlertCircle className="w-3.5 h-3.5" /> Unanswered</>}
                       </span>
                       <span className="text-brand-600 font-semibold hover:underline">Jump to # {idx + 1} →</span>
@@ -1019,7 +1015,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                 </span>
                 <button
                   onClick={handleRunTestCases}
-                  className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-1.5 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors"
+                  className="bg-brand-700 hover:bg-brand-800 text-white px-4 py-1.5 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors"
                 >
                   <Terminal className="w-3.5 h-3.5" />
                   <span>View Sample Test Cases</span>
@@ -1041,7 +1037,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
 
               {/* Test Case Output */}
               {testCaseResults[currentQuestion.id] && (
-                <div className="bg-emerald-50/80 border border-emerald-300 p-4 rounded-md text-emerald-900 text-xs font-mono fade-in shadow-sm whitespace-pre-wrap">
+                <div className="bg-brand-50/80 border border-brand-300 p-4 rounded-md text-brand-900 text-xs font-mono fade-in shadow-sm whitespace-pre-wrap">
                   <span className="font-bold uppercase tracking-wider block mb-1">Test Cases:</span>
                   {testCaseResults[currentQuestion.id]}
                 </div>
@@ -1106,7 +1102,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             <button
               onClick={() => handleSubmitAssessment()}
               disabled={isGrading}
-              className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-1.5"
+              className="px-6 py-2 rounded-md font-bold text-xs bg-brand-700 hover:bg-brand-800 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-1.5"
             >
               {isGrading ? (
                 <>

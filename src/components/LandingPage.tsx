@@ -147,7 +147,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthenticated, initi
         Skip to content
       </a>
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <Wordmark subtitle="Graduate admissions screening" />
           <nav aria-label="Account" className="flex items-center gap-2 text-sm">
             <button onClick={() => switchMode('login')} className="whitespace-nowrap rounded-md px-3 py-2 font-medium text-slate-700 hover:bg-slate-100">
@@ -164,7 +164,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthenticated, initi
       </header>
 
       <main id="main" className="flex-1">
-        <div className="mx-auto grid max-w-6xl gap-12 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_26rem] lg:py-16">
+        <div className="mx-auto grid max-w-6xl gap-12 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_26rem] lg:px-8 lg:py-16">
           <section aria-label="Sign in or create an account" className="lg:col-start-2 lg:row-start-1 lg:pt-2">
             <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
               <div role="tablist" aria-label="Account" className="flex border-b border-slate-200">

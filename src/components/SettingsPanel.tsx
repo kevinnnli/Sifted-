@@ -50,8 +50,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Platform Integrity & Lab Settings</h2>
-            <p className="text-xs text-slate-600">Configure integrity thresholds, AI features and notificationss</p>
+            <h2 className="text-lg font-bold text-slate-900">Settings</h2>
+            <p className="text-xs text-slate-600">Your lab details, integrity thresholds, late submissions and password</p>
           </div>
         </div>
 
@@ -165,11 +165,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
             <div className="space-y-3 text-xs">
               {aiConfigured ? (
-                <div className="p-3 rounded-md bg-emerald-50 border border-emerald-200 flex items-center space-x-2 shadow-sm">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                <div className="p-3 rounded-md bg-brand-50 border border-brand-200 flex items-center space-x-2 shadow-sm">
+                  <CheckCircle2 className="w-4 h-4 text-brand-700 shrink-0" />
                   <div>
-                    <span className="font-semibold text-emerald-900 block">AI service</span>
-                    <span className="text-xs text-emerald-700">API key configured on the server</span>
+                    <span className="font-semibold text-brand-900 block">AI service</span>
+                    <span className="text-xs text-brand-700">API key configured on the server</span>
                   </div>
                 </div>
               ) : (

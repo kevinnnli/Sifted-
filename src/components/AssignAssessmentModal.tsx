@@ -3,6 +3,7 @@ import { asButton } from './ui/a11y';
 import { errorMessage } from '../api';
 import { Assessment, AssessmentInvitation, ProfessorCandidate } from '../types';
 import { Send, UserCheck, Calendar, FileText, CheckCircle2, AlertCircle, X, Mail, Plus } from 'lucide-react';
+import { ModalBehavior } from './ui/ModalBehavior';
 
 export interface AssignInput {
   assessmentId: string;
@@ -109,6 +110,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-md border border-slate-200 max-w-2xl w-full overflow-hidden fade-in">
+        <ModalBehavior onClose={onClose} />
         {/* Header */}
         <div className="p-6 text-slate-900 relative">
           <button
@@ -133,7 +135,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
 
         {assignedSummary ? (
           <div className="p-12 text-center space-y-3">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+            <div className="w-16 h-16 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-10 h-10" />
             </div>
             <h3 className="text-lg font-bold text-slate-900">
@@ -197,7 +199,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center">
-                  <UserCheck className="w-4 h-4 mr-1.5 text-emerald-700" />
+                  <UserCheck className="w-4 h-4 mr-1.5 text-brand-700" />
                   Your Candidates
                 </label>
                 <span className="text-xs font-semibold text-brand-600">
@@ -225,7 +227,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                         hasOpenInvite
                           ? 'border-slate-200 bg-slate-100 opacity-60 cursor-not-allowed'
                           : isSelected
-                          ? 'cursor-pointer border-emerald-600 bg-emerald-50 text-emerald-900 shadow-sm ring-1 ring-emerald-600'
+                          ? 'cursor-pointer border-brand-600 bg-brand-50 text-brand-900 shadow-sm ring-1 ring-brand-600'
                           : 'cursor-pointer border-slate-200 bg-white hover:border-slate-300'
                       }`}
                       title={hasOpenInvite ? 'Already invited to this assessment' : undefined}
@@ -240,7 +242,7 @@ export const AssignAssessmentModal: React.FC<AssignAssessmentModalProps> = ({
                           {!acc.registered && !hasOpenInvite ? ' • not registered yet' : ''}
                         </div>
                       </div>
-                      {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />}
+                      {isSelected && <CheckCircle2 className="w-4 h-4 text-brand-700 shrink-0" />}
                     </div>
                   );
                 })}
