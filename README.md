@@ -76,3 +76,4 @@ Databases created by earlier versions had no passwords. On first start they are 
 - `npm run build:vercel`: the Vercel build (used automatically by `vercel.json`)
 - `npm run lint`: type-check
 - `npm test`: server security and isolation tests
+
