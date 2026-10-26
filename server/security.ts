@@ -4,6 +4,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { Database } from './db';
 import type { StoredUser } from './types';
 import type { UserAccount, UserRole } from '../src/types';
+import { securityHeaderList } from './securityHeaders.mjs';
 import { HttpError } from './validation';
 
 const scrypt = promisify(crypto.scrypt) as (password: string, salt: Buffer, keylen: number, options: crypto.ScryptOptions) => Promise<Buffer>;
@@ -11,16 +12,35 @@ const scrypt = promisify(crypto.scrypt) as (password: string, salt: Buffer, keyl
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const KEY_LENGTH = 64;
 export const SESSION_COOKIE = 'sifted_session';
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+// A session ends after 7 days without use, and in any case 30 days after sign-in. Activity
+// extends it (at most once an hour, to keep writes down), so students stay signed in while they
+// use the site but an abandoned or stolen session doesn't live on indefinitely.
+export const SESSION_IDLE_MS = 7 * 24 * HOUR_MS;
+export const SESSION_MAX_AGE_MS = 30 * 24 * HOUR_MS;
+const SESSION_RENEW_INTERVAL_MS = HOUR_MS;
 export const MIN_PASSWORD_LENGTH = 8;
+
+// Very common passwords (and patterns of them) that are refused outright
+const COMMON_PASSWORDS = new Set([
+  'password', 'password1', 'password123', 'passw0rd', '12345678', '123456789', '1234567890', '87654321',
+  'qwertyui', 'qwerty123', 'qwertyuiop', '1q2w3e4r', '1qaz2wsx', 'abcd1234', 'abc12345', 'iloveyou',
+  'sunshine', 'princess', 'football', 'baseball', 'welcome1', 'welcome123', 'admin123', 'letmein1',
+  'trustno1', 'superman', 'starwars', 'dragon123', 'monkey123', 'computer', 'internet', 'whatever',
+  'changeme', 'student1', 'student123', 'university', 'professor', 'sifted123',
+]);
 
 // ---- Passwords -------------------------------------------------------------
 
-export function validatePasswordStrength(password: unknown): string {
+export function validatePasswordStrength(password: unknown, context: { email?: string } = {}): string {
   if (typeof password !== 'string') throw new HttpError(400, 'Password is required');
   if (password.length < MIN_PASSWORD_LENGTH) throw new HttpError(400, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   if (password.length > 200) throw new HttpError(400, 'Password must be at most 200 characters');
-  if (/^(.)\1+$/.test(password)) throw new HttpError(400, 'Password is too easy to guess');
+  const lower = password.toLowerCase();
+  const emailName = context.email?.split('@')[0].toLowerCase();
+  if (/^(.)\1+$/.test(password) || COMMON_PASSWORDS.has(lower) || (emailName && emailName.length >= 4 && lower.includes(emailName))) {
+    throw new HttpError(400, 'This password is too easy to guess. Choose a less common password that does not contain your email address.');
+  }
   return password;
 }
 
@@ -63,10 +83,18 @@ export function createSession(db: Database, userId: string): string {
     tokenHash: hashToken(token),
     userId,
     createdAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + SESSION_TTL_MS).toISOString(),
+    expiresAt: new Date(now + SESSION_IDLE_MS).toISOString(),
   });
   db.save();
   return token;
+}
+
+/** Removes expired sessions (they no longer grant access, but there is no reason to keep them). */
+export function pruneExpiredSessions(db: Database) {
+  const now = Date.now();
+  const before = db.data.sessions.length;
+  db.data.sessions = db.data.sessions.filter((s) => Date.parse(s.expiresAt) > now);
+  if (db.data.sessions.length !== before) db.save();
 }
 
 export function destroySession(db: Database, token: string | undefined) {
@@ -96,13 +124,17 @@ export function readSessionToken(req: Request): string | undefined {
   return readCookie(req, SESSION_COOKIE);
 }
 
-/** The signed-in, enabled account a session token belongs to, if the session is still valid. */
-export function userForToken(db: Database, token: string | undefined): StoredUser | undefined {
+function validSession(db: Database, token: string | undefined) {
   if (!token) return undefined;
   const tokenHash = hashToken(token);
   const session = db.data.sessions.find((s) => s.tokenHash === tokenHash);
-  if (!session || Date.parse(session.expiresAt) <= Date.now()) return undefined;
-  const user = db.findUser(session.userId);
+  return session && Date.parse(session.expiresAt) > Date.now() ? session : undefined;
+}
+
+/** The signed-in, enabled account a session token belongs to, if the session is still valid. */
+export function userForToken(db: Database, token: string | undefined): StoredUser | undefined {
+  const session = validSession(db, token);
+  const user = session && db.findUser(session.userId);
   return user && !user.disabled ? user : undefined;
 }
 
@@ -113,8 +145,8 @@ function cookieAttributes(req: Request) {
   return `Path=/; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
 }
 
-export function setSessionCookie(req: Request, res: Response, token: string) {
-  res.append('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${SESSION_TTL_MS / 1000}; ${cookieAttributes(req)}`);
+export function setSessionCookie(req: Request, res: Response, token: string, maxAgeMs = SESSION_IDLE_MS) {
+  res.append('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${Math.floor(maxAgeMs / 1000)}; ${cookieAttributes(req)}`);
 }
 
 export function clearSessionCookie(req: Request, res: Response) {
@@ -128,7 +160,7 @@ export function clearSessionCookie(req: Request, res: Response) {
 export const ADMIN_RETURN_COOKIE = 'sifted_admin_return';
 
 export function setAdminReturnCookie(req: Request, res: Response, token: string) {
-  res.append('Set-Cookie', `${ADMIN_RETURN_COOKIE}=${encodeURIComponent(token)}; Max-Age=${SESSION_TTL_MS / 1000}; ${cookieAttributes(req)}`);
+  res.append('Set-Cookie', `${ADMIN_RETURN_COOKIE}=${encodeURIComponent(token)}; Max-Age=${Math.floor(SESSION_IDLE_MS / 1000)}; ${cookieAttributes(req)}`);
 }
 
 export function clearAdminReturnCookie(req: Request, res: Response) {
@@ -149,9 +181,21 @@ export function toPublicUser(user: StoredUser): UserAccount {
 // ---- Middleware ------------------------------------------------------------
 
 export function authenticate(db: Database): RequestHandler {
-  return (req, _res, next) => {
-    const user = userForToken(db, readSessionToken(req));
-    if (user) req.user = user;
+  return (req, res, next) => {
+    const token = readSessionToken(req);
+    const session = validSession(db, token);
+    const user = session && db.findUser(session.userId);
+    if (session && user && !user.disabled) {
+      req.user = user;
+      // Rolling renewal: activity pushes the idle expiry forward, never past the absolute limit
+      const now = Date.now();
+      const renewed = Math.min(now + SESSION_IDLE_MS, Date.parse(session.createdAt) + SESSION_MAX_AGE_MS);
+      if (renewed - Date.parse(session.expiresAt) >= SESSION_RENEW_INTERVAL_MS) {
+        session.expiresAt = new Date(renewed).toISOString();
+        setSessionCookie(req, res, token!, renewed - now);
+        db.save();
+      }
+    }
     next();
   };
 }
@@ -194,12 +238,11 @@ export const csrfGuard: RequestHandler = (req, _res, next) => {
 };
 
 export function securityHeaders(): RequestHandler {
+  const headers = Object.entries(
+    securityHeaderList({ production: process.env.NODE_ENV === 'production', allowEmbedding: process.env.ALLOW_EMBEDDING === 'true' })
+  );
   return (_req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    if (process.env.ALLOW_EMBEDDING !== 'true') res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    for (const [name, value] of headers) res.setHeader(name, value);
     next();
   };
 }

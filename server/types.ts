@@ -38,7 +38,7 @@ export interface ExamAttempt {
   copyPasteAttempts: number;
   integrityEvents: string[];
   lockdown: boolean;
-  details: { secondaryEmail: string; university: string; degreeProgram: string; gpa?: string };
+  details: { secondaryEmail?: string; university: string; degreeProgram: string; gpa?: string };
   updatedAt: string;
 }
 

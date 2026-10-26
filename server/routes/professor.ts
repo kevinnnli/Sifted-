@@ -11,7 +11,8 @@ import type {
 } from '../../src/types';
 import { applyScoreOverrides, getHireabilityLevel, isEmptyOrTrivialResponse } from '../../src/utils/grading';
 import type { Database } from '../db';
-import { requireRole } from '../security';
+import { AttemptLimiter, requireRole } from '../security';
+import { isSandboxEmail } from '../testAccounts';
 import { DIFFICULTIES, generateQuestion, QUESTION_TYPES, TOPICS, writeBriefing } from '../services/ai';
 import {
   asyncHandler,
@@ -39,6 +40,12 @@ const INTEGRITY_KEYS = Object.keys(DEFAULT_INTEGRITY_OPTIONS) as (keyof Integrit
 export function professorRoutes(db: Database) {
   const router = Router();
   router.use(requireRole('professor'));
+  // AI calls cost money and time: a generous hourly allowance per professor
+  const aiLimiter = new AttemptLimiter(60, 60 * 60 * 1000);
+  const useAi = (req: Request) => {
+    aiLimiter.check(req.user!.id);
+    aiLimiter.record(req.user!.id);
+  };
 
   const getProfessor = (req: Request): ProfessorProfile => {
     const professor = db.data.professors.find((p) => p.id === req.user!.professorId);
@@ -206,9 +213,12 @@ export function professorRoutes(db: Database) {
     return question;
   };
 
+  // Test-account questions never reach the shared bank that real professors see
+  const sandboxPrivate = (req: Request, question: Question): Question => (req.user!.isTestAccount ? { ...question, isPublic: false } : question);
+
   router.post('/questions', (req, res) => {
     const professor = getProfessor(req);
-    const question: Question = { id: crypto.randomUUID(), ...parseQuestion(req.body?.question), professorId: professor.id };
+    const question: Question = sandboxPrivate(req, { id: crypto.randomUUID(), ...parseQuestion(req.body?.question), professorId: professor.id });
     db.data.questions.unshift(question);
     db.save();
     res.status(201).json({ success: true, question });
@@ -219,7 +229,7 @@ export function professorRoutes(db: Database) {
     const index = db.data.questions.findIndex((q) => q.id === req.params.id);
     const existing = db.data.questions[index];
     if (!existing || existing.professorId !== professor.id) throw notFound('Question not found');
-    db.data.questions[index] = { ...parseQuestion(req.body?.question, existing), id: existing.id, professorId: professor.id };
+    db.data.questions[index] = sandboxPrivate(req, { ...parseQuestion(req.body?.question, existing), id: existing.id, professorId: professor.id });
     db.save();
     res.json({ success: true, question: db.data.questions[index] });
   });
@@ -228,6 +238,7 @@ export function professorRoutes(db: Database) {
     '/ai/generate-question',
     asyncHandler(async (req, res) => {
       getProfessor(req);
+      useAi(req);
       const body = req.body || {};
       const text = (v: unknown, field: string) => optionalString(v, field, 500);
       const result = await generateQuestion({
@@ -256,7 +267,13 @@ export function professorRoutes(db: Database) {
 
     const created: AssessmentInvitation[] = [];
     const skipped: { email: string; reason: string }[] = [];
+    // Test accounts and real accounts never mix: sandbox professors invite sandbox students only
+    const sandbox = Boolean(req.user!.isTestAccount);
     for (const email of emails) {
+      if (isSandboxEmail(email) !== sandbox) {
+        skipped.push({ email, reason: sandbox ? 'test accounts can only invite test students' : 'is reserved for test accounts' });
+        continue;
+      }
       const account = db.findUserByEmail(email);
       if (account && account.role !== 'applicant') {
         skipped.push({ email, reason: 'belongs to a staff account' });
@@ -348,6 +365,7 @@ export function professorRoutes(db: Database) {
     asyncHandler(async (req, res) => {
       const professor = getProfessor(req);
       const submission = ownSubmission(professor, req.params.id);
+      useAi(req);
       res.json({ success: true, ...(await writeBriefing(submission)) });
     })
   );

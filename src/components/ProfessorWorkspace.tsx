@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { notify } from '../notify';
 import { api, AssessmentInput, errorMessage, ReviewPatch } from '../api';
 import {
   ApplicantSubmission,
@@ -9,6 +10,7 @@ import {
   UserAccount,
 } from '../types';
 import { Navbar } from './Navbar';
+import { SiteFooter } from './ui/SiteFooter';
 import { ProfessorDashboard } from './ProfessorDashboard';
 import { AssessmentBuilder } from './AssessmentBuilder';
 import { QuestionBank } from './QuestionBank';
@@ -68,7 +70,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
         {loadError ? (
           <>
             <span className="font-semibold text-rose-700">{loadError}</span>
-            <button onClick={load} className="px-4 py-2 rounded-md bg-indigo-600 text-white text-xs font-bold">
+            <button onClick={load} className="px-4 py-2 rounded-md bg-brand-600 text-white text-xs font-bold">
               Try Again
             </button>
           </>
@@ -95,7 +97,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
       setData((prev) => prev && { ...prev, assessments: upsert(prev.assessments, saved) });
       return saved;
     } catch (e) {
-      alert(`Could not save the assessment: ${errorMessage(e)}`);
+      notify(`Could not save the assessment: ${errorMessage(e)}`, 'error');
       return null;
     }
   };
@@ -109,7 +111,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
       setData((prev) => prev && { ...prev, questions: upsert(prev.questions, saved) });
       return saved;
     } catch (e) {
-      alert(`Could not save the question: ${errorMessage(e)}`);
+      notify(`Could not save the question: ${errorMessage(e)}`, 'error');
       return null;
     }
   };
@@ -120,7 +122,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
       setData((prev) => prev && { ...prev, submissions: upsert(prev.submissions, submission) });
       return submission;
     } catch (e) {
-      alert(`Could not save: ${errorMessage(e)}`);
+      notify(`Could not save: ${errorMessage(e)}`, 'error');
       return null;
     }
   };
@@ -131,7 +133,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
       setData((prev) => prev && { ...prev, submissions: prev.submissions.filter((s) => s.id !== submissionId) });
       if (selectedSubmissionId === submissionId) setSelectedSubmissionId(null);
     } catch (e) {
-      alert(`Could not remove the submission: ${errorMessage(e)}`);
+      notify(`Could not remove the submission: ${errorMessage(e)}`, 'error');
     }
   };
 
@@ -153,7 +155,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
       onUserUpdated({ ...user, labName: saved.labName });
       return true;
     } catch (e) {
-      alert(`Could not save settings: ${errorMessage(e)}`);
+      notify(`Could not save settings: ${errorMessage(e)}`, 'error');
       return false;
     }
   };
@@ -164,7 +166,10 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col selection:bg-indigo-500 selection:text-white">
+    <div className="flex min-h-screen flex-col text-slate-900">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       <Navbar
         currentProfessor={professor}
         activeTab={activeTab}
@@ -182,7 +187,7 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
         onOpenAssignModal={() => openAssignModal()}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
         {selectedSubmission ? (
           <IndividualApplicantReview
             key={selectedSubmission.id}
@@ -265,23 +270,9 @@ export const ProfessorWorkspace: React.FC<ProfessorWorkspaceProps> = ({ user, ai
         )}
       </main>
 
-      <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-2">
-            <span className="font-bold text-slate-800">Sifted</span>
-            <span>• Graduate Admissions & Faculty Screening System</span>
-          </div>
-          <div className="flex items-center space-x-4">
-            {aiConfigured === null ? (
-              <span className="text-slate-400 font-semibold">Checking AI status…</span>
-            ) : aiConfigured ? (
-              <span className="text-emerald-600 font-semibold">Gemini AI connected (server-side)</span>
-            ) : (
-              <span className="text-amber-600 font-semibold">AI not configured — using built-in grading</span>
-            )}
-          </div>
-        </div>
-      </footer>
+      <SiteFooter
+        note={aiConfigured === null ? 'Checking AI status…' : aiConfigured ? 'AI features available' : 'AI not configured; built-in grading only'}
+      />
 
       {showAssignModal && (
         <AssignAssessmentModal

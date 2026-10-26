@@ -1,17 +1,7 @@
 import React from 'react';
-import { 
-  GraduationCap, 
-  LayoutDashboard, 
-  FileText, 
-  Database, 
-  Users, 
-  BarChart3, 
-  ShieldCheck, 
-  User,
-  Send,
-  LogOut
-} from 'lucide-react';
+import { LayoutDashboard, FileText, Database, Users, BarChart3, Settings, Send, LogOut } from 'lucide-react';
 import { ProfessorProfile, UserAccount } from '../types';
+import { Wordmark } from './ui/Wordmark';
 
 interface NavbarProps {
   currentProfessor: ProfessorProfile;
@@ -23,134 +13,95 @@ interface NavbarProps {
   onOpenAssignModal?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  currentProfessor,
-  activeTab,
-  onSelectTab,
-  onSignOut,
-  currentUserAccount,
-  onOpenAccount,
-  onOpenAssignModal,
-}) => {
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'assessments', label: 'Assessments', icon: FileText },
+  { id: 'questions', label: 'Questions', icon: Database },
+  { id: 'applicants', label: 'Applicants', icon: Users },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'settings', label: 'Settings', icon: Settings },
+];
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'assessments', label: 'Assessments', icon: FileText },
-    { id: 'questions', label: 'Questions', icon: Database },
-    { id: 'applicants', label: 'Applicants', icon: Users },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'settings', label: 'Settings', icon: ShieldCheck },
-  ];
+const initials = (name: string) =>
+  name
+    .replace(/^(Dr|Prof)\.?\s+/i, '')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+export const Navbar: React.FC<NavbarProps> = ({ currentProfessor, activeTab, onSelectTab, onSignOut, currentUserAccount, onOpenAccount, onOpenAssignModal }) => {
+  const name = currentUserAccount?.name || currentProfessor.name;
+
+  const item = (entry: (typeof NAV_ITEMS)[number], compact = false) => {
+    const Icon = entry.icon;
+    const active = activeTab === entry.id;
+    return (
+      <li key={entry.id}>
+        <button
+          onClick={() => onSelectTab(entry.id)}
+          aria-current={active ? 'page' : undefined}
+          className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            active ? 'bg-brand-50 text-brand-900' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          } ${compact ? 'text-xs' : ''}`}
+        >
+          <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-brand-700' : 'text-slate-600'}`} aria-hidden />
+          {entry.label}
+        </button>
+      </li>
+    );
+  };
 
   return (
-    <header className="bg-[#0F172A] text-slate-300 border-b border-slate-800 sticky top-0 z-50 shadow-md">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-2">
-          {/* Logo */}
-          <div className="flex items-center space-x-2.5 cursor-pointer shrink-0" onClick={() => onSelectTab('dashboard')}>
-            <div className="w-8 h-8 md:w-9 md:h-9 rounded-md bg-indigo-600 flex items-center justify-center shadow-sm shadow-indigo-500/20 text-white font-bold shrink-0">
-              <GraduationCap className="w-4 h-4 md:w-5 md:h-5 text-white" />
-            </div>
-            <div className="shrink-0">
-              <span className="font-semibold text-base md:text-lg tracking-tight text-white block leading-tight">
-                Sifted
-              </span>
-              <span className="hidden xl:block text-[9px] md:text-[10px] uppercase tracking-wider text-indigo-400 font-semibold leading-tight">
-                Graduate Admissions
-              </span>
-            </div>
-          </div>
+    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white">
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between gap-3">
+          <button onClick={() => onSelectTab('dashboard')} className="shrink-0 rounded-md text-left" aria-label="Sifted, go to dashboard">
+            <Wordmark subtitle="Faculty workspace" />
+          </button>
 
-          {/* Professor Tabs */}
-          <nav className="hidden lg:flex items-center space-x-1 shrink">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onSelectTab(item.id)}
-                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs xl:text-sm font-medium transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 xl:w-4 xl:h-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
+          <nav aria-label="Workspace" className="hidden xl:block">
+            <ul className="flex items-center gap-1">{NAV_ITEMS.map((entry) => item(entry))}</ul>
           </nav>
 
-          {/* Role & Profile Switcher */}
-          <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
-            {/* Assign Test button for professors */}
+          <div className="flex shrink-0 items-center gap-2">
             {onOpenAssignModal && (
               <button
                 onClick={onOpenAssignModal}
-                className="hidden sm:flex items-center space-x-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
+                className="hidden items-center gap-1.5 whitespace-nowrap rounded-md bg-brand-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800 sm:flex"
               >
-                <Send className="w-3.5 h-3.5 shrink-0" />
-                <span>Assign Test</span>
+                <Send className="h-4 w-4" aria-hidden />
+                Assign test
               </button>
             )}
-
+            <button
+              onClick={() => onOpenAccount && onOpenAccount()}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
+              title="Account settings"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 font-serif text-xs font-semibold text-brand-800 ring-1 ring-brand-200" aria-hidden>
+                {initials(name)}
+              </span>
+              <span className="hidden max-w-[10rem] truncate 2xl:inline">{name}</span>
+              <span className="sr-only 2xl:hidden">Account settings</span>
+            </button>
             <button
               onClick={onSignOut}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors whitespace-nowrap"
-              title="Sign out"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              <LogOut className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Sign Out</span>
+              <LogOut className="h-4 w-4" aria-hidden />
+              <span className="hidden sm:inline">Sign out</span>
+              <span className="sr-only sm:hidden">Sign out</span>
             </button>
-
-            {/* Account Switcher Badge */}
-            <div className="flex items-center space-x-2 border-l border-slate-800 pl-2 sm:pl-3 shrink-0">
-              <button
-                onClick={() => onOpenAccount && onOpenAccount()}
-                className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1.5 rounded-md border border-slate-700 text-xs font-medium transition-colors cursor-pointer group"
-                title="Account settings"
-              >
-                <img
-                  src={currentUserAccount?.avatar || currentProfessor.avatar}
-                  alt={currentUserAccount?.name || currentProfessor.name}
-                  className="w-5 h-5 sm:w-6 sm:h-6 rounded-full object-cover border border-slate-600 group-hover:border-indigo-400 shrink-0"
-                />
-                <div className="text-left hidden xl:block max-w-[100px] truncate">
-                  <span className="font-bold text-white block truncate text-[11px] leading-tight">
-                    {currentUserAccount?.name || currentProfessor.name}
-                  </span>
-                  <span className="text-[9px] text-slate-400 block truncate uppercase leading-tight">
-                    {currentUserAccount?.role || 'Prof'}
-                  </span>
-                </div>
-                <User className="w-3.5 h-3.5 text-slate-400 group-hover:text-white ml-0.5 shrink-0" />
-              </button>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Mobile navigation bar for small screens */}
-      <div className="lg:hidden flex overflow-x-auto border-t border-slate-800 px-4 py-2 space-x-2 bg-[#0F172A]">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap ${
-                isActive ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20' : 'text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      <nav aria-label="Workspace" className="border-t border-slate-200 xl:hidden">
+        <ul className="flex gap-1 overflow-x-auto px-4 py-2">{NAV_ITEMS.map((entry) => item(entry, true))}</ul>
+      </nav>
     </header>
   );
 };

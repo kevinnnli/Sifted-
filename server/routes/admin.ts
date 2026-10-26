@@ -16,12 +16,12 @@ import {
 } from '../security';
 import { isAiConfigured } from '../services/ai';
 import { storageInfo } from '../storage';
-import { ensureTestAccounts, removeTestAccounts, resetTestAccounts, testAccountNote, testAccountsEnabled } from '../testAccounts';
+import { eraseStudent } from '../services/accounts';
+import { ensureTestAccounts, isSandboxEmail, removeTestAccounts, resetTestAccounts, testAccountNote, testAccountsEnabled } from '../testAccounts';
 import type { StoredUser } from '../types';
-import { asyncHandler, badRequest, conflict, forbidden, notFound, optionalHttpUrl, requireBoolean, requireEmail, requireString } from '../validation';
+import { asyncHandler, badRequest, conflict, forbidden, notFound, requireBoolean, requireEmail, requireString } from '../validation';
 import { studentVerificationRequired } from '../views';
 
-const DEFAULT_PROFESSOR_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80';
 
 export function adminRoutes(db: Database) {
   const router = Router();
@@ -89,8 +89,10 @@ export function adminRoutes(db: Database) {
       const email = requireEmail(body.email);
       const department = requireString(body.department, 'Department', { max: 200 });
       const labName = requireString(body.labName, 'Lab name', { max: 200 });
-      const avatar = optionalHttpUrl(body.avatar, 'Avatar URL') || DEFAULT_PROFESSOR_AVATAR;
-      const password = validatePasswordStrength(body.temporaryPassword);
+      // No profile photos: external image URLs would let third parties track who views them
+      const avatar = '';
+      const password = validatePasswordStrength(body.temporaryPassword, { email });
+      if (isSandboxEmail(email)) throw badRequest('This email domain is reserved for test accounts');
       if (db.findUserByEmail(email)) throw conflict('An account with this email already exists');
 
       const professor: ProfessorProfile = {
@@ -131,7 +133,7 @@ export function adminRoutes(db: Database) {
     asyncHandler(async (req, res) => {
       const account = findAccount(req.params.id);
       assertManageable(req.user!.id, account);
-      const password = validatePasswordStrength(req.body?.newPassword);
+      const password = validatePasswordStrength(req.body?.newPassword, { email: account.email });
       account.passwordHash = await hashPassword(password);
       // Test accounts keep a known password; real users must choose their own
       if (account.isTestAccount) account.testPassword = password;
@@ -161,9 +163,13 @@ export function adminRoutes(db: Database) {
     if (account.role === 'professor' && db.data.assessments.some((a) => a.professorId === account.professorId)) {
       throw badRequest('This professor owns assessments. Disable the account instead so their records stay intact.');
     }
+    // A student's deletion removes all of their personal data, not just the login
+    if (account.role === 'applicant') {
+      const removed = eraseStudent(db, account);
+      return res.json({ success: true, removed });
+    }
     destroyUserSessions(db, account.id);
     db.data.users = db.data.users.filter((u) => u.id !== account.id);
-    db.data.attempts = db.data.attempts.filter((a) => a.studentId !== account.id);
     if (account.role === 'professor') db.data.professors = db.data.professors.filter((p) => p.id !== account.professorId);
     db.save();
     res.json({ success: true });

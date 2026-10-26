@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, GraduationCap, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { api, errorMessage } from '../../api';
+import { notify } from '../../notify';
 import { ExamAttemptView, StudentInvitationView, StudentPortalData, StudentSubmissionView, UserAccount } from '../../types';
 import { ChangePasswordForm } from '../ChangePasswordForm';
 import { ExamSession } from './ExamSession';
@@ -8,6 +9,8 @@ import { CandidateDetails, PreExamCheck } from './PreExamCheck';
 import { StudentDashboard } from './StudentDashboard';
 import { SubmissionStatus } from './SubmissionStatus';
 import { EMAIL_PATTERN } from './examUtils';
+import { SiteFooter } from '../ui/SiteFooter';
+import { Wordmark } from '../ui/Wordmark';
 
 interface StudentPortalProps {
   user: UserAccount;
@@ -15,8 +18,21 @@ interface StudentPortalProps {
   onUserUpdated: (user: UserAccount) => void;
 }
 
-// Candidate details handed from this tab to the secure exam tab (same browser, same signed-in student)
+// Candidate details handed from this tab to the exam tab (same browser, same signed-in student).
+// Removed as soon as the exam tab reads them, or after LAUNCH_DETAILS_TTL_MS if it never opens.
 const LAUNCH_DETAILS_KEY = 'sifted-exam-launch';
+const LAUNCH_DETAILS_TTL_MS = 10 * 60 * 1000;
+
+function clearStaleLaunchDetails() {
+  try {
+    const raw = window.localStorage.getItem(LAUNCH_DETAILS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.savedAt || Date.now() - Date.parse(parsed.savedAt) > LAUNCH_DETAILS_TTL_MS) window.localStorage.removeItem(LAUNCH_DETAILS_KEY);
+  } catch {
+    // storage unavailable or unreadable: nothing to clean up
+  }
+}
 
 type Step = 'dashboard' | 'invite' | 'testing' | 'completed';
 
@@ -30,13 +46,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
   const [completedSubmissionId, setCompletedSubmissionId] = useState<string | null>(null);
   const [justSubmitted, setJustSubmitted] = useState<StudentSubmissionView | null>(null);
   const [starting, setStarting] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [showAccount, setShowAccount] = useState(false);
 
-  const showNotice = (message: string, ms = 6000) => {
-    setNotice(message);
-    setTimeout(() => setNotice(null), ms);
-  };
+  const showNotice = (message: string, kind: 'success' | 'error' | 'info' = 'info') => notify(message, kind);
 
   const load = useCallback(async () => {
     try {
@@ -88,7 +100,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
       return true;
     } catch (e) {
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
-      showNotice(errorMessage(e));
+      showNotice(errorMessage(e), 'error');
       await load();
       setStep('dashboard');
       return false;
@@ -99,6 +111,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
 
   // First load, plus the secure exam tab opened with ?exam=<invitation id>
   useEffect(() => {
+    clearStaleLaunchDetails();
     (async () => {
       const portal = await load();
       const params = new URLSearchParams(window.location.search);
@@ -109,7 +122,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
       const invitation = portal?.invitations.find((i) => i.id === examId);
       if (!invitation) {
-        showNotice('That test could not be found for your account.');
+        showNotice('That test could not be found for your account.', 'error');
         return;
       }
       let details: CandidateDetails | undefined;
@@ -117,7 +130,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
         const raw = window.localStorage.getItem(LAUNCH_DETAILS_KEY);
         window.localStorage.removeItem(LAUNCH_DETAILS_KEY);
         const parsed = raw ? JSON.parse(raw) : null;
-        if (parsed?.invitationId === examId && parsed.userId === user.id) details = parsed.details;
+        const fresh = parsed?.savedAt && Date.now() - Date.parse(parsed.savedAt) <= LAUNCH_DETAILS_TTL_MS;
+        if (fresh && parsed.invitationId === examId && parsed.userId === user.id) details = parsed.details;
       } catch {
         // storage unavailable: the student can start from the dashboard instead
       }
@@ -132,16 +146,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
 
   if (!data) {
     return (
-      <div className="max-w-4xl mx-auto py-24 flex flex-col items-center gap-3 text-sm text-slate-300">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-sm text-slate-700" role={loadError ? 'alert' : 'status'}>
         {loadError ? (
           <>
-            <span className="font-semibold text-rose-300">{loadError}</span>
-            <button onClick={load} className="px-4 py-2 rounded-md bg-indigo-600 text-white text-xs font-bold">
-              Try Again
+            <span className="font-medium text-rose-800">{loadError}</span>
+            <button onClick={load} className="rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">
+              Try again
             </button>
           </>
         ) : (
-          <span className="font-semibold">Loading your portal…</span>
+          <span className="font-medium">Loading your portal…</span>
         )}
       </div>
     );
@@ -154,7 +168,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
 
   const handleOpenInvitation = (invitation: StudentInvitationView) => {
     if (invitation.blocker) {
-      showNotice(invitation.blocker);
+      showNotice(invitation.blocker, 'info');
       return;
     }
     if (invitation.hasActiveAttempt) {
@@ -187,7 +201,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
   const handleLaunchInNewTab = (details: CandidateDetails) => {
     if (!activeInvitation) return;
     try {
-      window.localStorage.setItem(LAUNCH_DETAILS_KEY, JSON.stringify({ invitationId: activeInvitation.id, userId: user.id, details }));
+      window.localStorage.setItem(
+        LAUNCH_DETAILS_KEY,
+        JSON.stringify({ invitationId: activeInvitation.id, userId: user.id, details, savedAt: new Date().toISOString() })
+      );
     } catch {
       showNotice('Your browser blocked local storage, so the test will start in this tab instead.');
       handleStart(true, details);
@@ -195,7 +212,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
     }
     window.open(`${window.location.pathname}?exam=${encodeURIComponent(activeInvitation.id)}`, '_blank', 'noopener,noreferrer');
     setStep('dashboard');
-    showNotice('Your secure exam opened in a new tab. Complete it there — your answers are saved automatically.', 8000);
+    showNotice('Your test opened in a new tab. Complete it there; your answers are saved automatically.');
   };
 
   const handleSubmitted = async (submission: StudentSubmissionView) => {
@@ -222,9 +239,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
     try {
       const { submission: updated } = await api.student.rsvp(submission.id, response);
       setData((prev) => prev && { ...prev, submissions: prev.submissions.map((s) => (s.id === updated.id ? updated : s)) });
-      showNotice(`You have ${response === 'Accepted' ? 'accepted' : 'declined'} the interview invitation.`, 4500);
+      showNotice(`You have ${response === 'Accepted' ? 'accepted' : 'declined'} the interview invitation.`, 'success');
     } catch (e) {
-      showNotice(errorMessage(e));
+      showNotice(errorMessage(e), 'error');
     }
   };
 
@@ -233,7 +250,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
       await api.student.hideSubmission(submission.id);
       setData((prev) => prev && { ...prev, submissions: prev.submissions.filter((s) => s.id !== submission.id) });
     } catch (e) {
-      showNotice(errorMessage(e));
+      showNotice(errorMessage(e), 'error');
     }
   };
 
@@ -245,39 +262,28 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-20 pt-4">
-      {/* Top Bar */}
-      <div className="flex items-center justify-between bg-[#0F172A] text-white p-4 rounded-lg shadow-sm border border-slate-800">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-            <GraduationCap className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="font-bold text-sm tracking-tight block">Sifted • Candidate Portal</span>
-            <span className="text-[11px] text-slate-400">
-              {step === 'testing' && attempt ? attempt.assessment.title : `Signed in as ${user.name}`}
-            </span>
+    <div className="flex min-h-screen flex-col">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
+      <header className="border-b border-slate-200 bg-white">
+        <div className={`mx-auto flex items-center justify-between gap-4 px-4 py-3 sm:px-6 ${step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'}`}>
+          <Wordmark subtitle={step === 'testing' && attempt ? attempt.assessment.title : 'Student portal'} />
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-slate-600 sm:inline">{user.name}</span>
+            {step !== 'testing' && (
+              <button onClick={() => setShowAccount(true)} className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">
+                My account
+              </button>
+            )}
+            <button onClick={handleSignOut} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Sign out
+            </button>
           </div>
         </div>
-        <button
-          onClick={handleSignOut}
-          className="text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-1.5 rounded-md border border-slate-700 transition-colors"
-        >
-          Sign Out
-        </button>
-      </div>
+      </header>
 
-      {notice && (
-        <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-lg flex items-center justify-between text-sm font-bold animate-fade-in border border-emerald-500">
-          <div className="flex items-center space-x-2.5">
-            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-200" />
-            <span>{notice}</span>
-          </div>
-          <button onClick={() => setNotice(null)} className="text-white hover:text-emerald-200 font-extrabold px-2 py-1">
-            ✕
-          </button>
-        </div>
-      )}
+      <main id="main" className={`mx-auto w-full flex-1 space-y-8 px-4 pb-20 pt-8 sm:px-6 ${step === 'testing' ? 'max-w-7xl' : 'max-w-5xl'}`}>
 
       {step === 'dashboard' && (
         <StudentDashboard
@@ -288,7 +294,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
           onOpenSubmission={openSubmission}
           onRSVP={handleRSVP}
           onHideSubmission={handleHideSubmission}
-          onOpenAccount={() => setShowAccount(true)}
           onRefresh={load}
         />
       )}
@@ -317,7 +322,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
             setDashboardSection(completedSubmission.decision === 'Interview' ? 'interviews' : 'all');
             setStep('dashboard');
           }}
-          onSignOut={handleSignOut}
         />
       )}
 
@@ -330,95 +334,197 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ user, onSignOut, o
             onUserUpdated(profile);
           }}
           onPasswordChanged={onUserUpdated}
+          onDeleted={() => {
+            notify('Your account and all of your data have been deleted.', 'success');
+            onSignOut();
+          }}
         />
       )}
+      </main>
+      <SiteFooter />
     </div>
   );
 };
+
+const inputClass =
+  'mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/25';
 
 const AccountPanel: React.FC<{
   profile: UserAccount;
   onClose: () => void;
   onProfileSaved: (profile: UserAccount) => void;
   onPasswordChanged: (user: UserAccount) => void;
-}> = ({ profile, onClose, onProfileSaved, onPasswordChanged }) => {
+  onDeleted: () => void;
+}> = ({ profile, onClose, onProfileSaved, onPasswordChanged, onDeleted }) => {
   const [secondaryEmail, setSecondaryEmail] = useState(profile.secondaryEmail || '');
   const [university, setUniversity] = useState(profile.university || '');
   const [degreeProgram, setDegreeProgram] = useState(profile.degreeProgram || '');
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMessage(null);
-    if (!EMAIL_PATTERN.test(secondaryEmail.trim())) {
-      setMessage({ ok: false, text: 'Please enter a valid personal email.' });
+    setProfileError(null);
+    const personal = secondaryEmail.trim();
+    if (personal && !EMAIL_PATTERN.test(personal)) {
+      setProfileError('Please enter a valid personal email, or leave it blank.');
       return;
     }
     setSaving(true);
     try {
-      const { profile: saved } = await api.student.updateProfile({ secondaryEmail, university, degreeProgram });
+      const { profile: saved } = await api.student.updateProfile({ secondaryEmail: personal || undefined, university, degreeProgram });
       onProfileSaved(saved);
-      setMessage({ ok: true, text: 'Profile saved.' });
+      notify('Profile saved.', 'success');
     } catch (err) {
-      setMessage({ ok: false, text: errorMessage(err) });
+      setProfileError(errorMessage(err));
     } finally {
       setSaving(false);
     }
   };
 
-  const inputClass =
-    'w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+  const handleDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError(null);
+    if (!confirmDelete) {
+      setDeleteError('Please tick the box to confirm that you understand this cannot be undone.');
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.student.deleteAccount(deletePassword);
+      onDeleted();
+    } catch (err) {
+      setDeleteError(errorMessage(err));
+      setDeleting(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden text-slate-900">
-        <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 sm:items-center" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-title"
+        onClick={(e) => e.stopPropagation()}
+        className="fade-in w-full max-w-lg rounded-xl bg-white shadow-xl outline-none"
+      >
+        <div className="flex items-start justify-between border-b border-slate-200 p-5">
           <div>
-            <h2 className="text-base font-bold">My Account</h2>
-            <p className="text-xs text-slate-400">
-              {profile.name} • {profile.email}
+            <h2 id="account-title" className="text-xl font-semibold">
+              My account
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {profile.name} · {profile.email}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1.5 rounded-lg bg-white/10">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-800" aria-label="Close">
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
-        <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
-          <form onSubmit={handleSave} className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Profile</h3>
-            {message && (
-              <div className={`p-3 rounded-lg text-xs font-medium ${message.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800'}`}>
-                {message.text}
-              </div>
+        <div className="max-h-[75vh] space-y-8 overflow-y-auto p-5">
+          <form onSubmit={handleSave} className="space-y-4" aria-labelledby="profile-heading">
+            <h3 id="profile-heading" className="text-lg font-semibold">
+              Profile
+            </h3>
+            {profileError && (
+              <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {profileError}
+              </p>
             )}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">University email (sign-in, can't be changed)</label>
-              <input value={profile.email} readOnly className={`${inputClass} bg-slate-100 text-slate-500 cursor-not-allowed`} />
+              <label htmlFor="acct-email" className="block text-sm font-medium text-slate-800">
+                University email
+              </label>
+              <input id="acct-email" value={profile.email} readOnly aria-describedby="acct-email-hint" className={`${inputClass} bg-slate-50 text-slate-600`} />
+              <p id="acct-email-hint" className="mt-1 text-xs text-slate-600">
+                Used to sign in. It cannot be changed.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="acct-university" className="block text-sm font-medium text-slate-800">
+                  University
+                </label>
+                <input id="acct-university" value={university} onChange={(e) => setUniversity(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label htmlFor="acct-degree" className="block text-sm font-medium text-slate-800">
+                  Degree programme
+                </label>
+                <input id="acct-degree" value={degreeProgram} onChange={(e) => setDegreeProgram(e.target.value)} className={inputClass} />
+              </div>
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Personal email</label>
-              <input type="email" value={secondaryEmail} onChange={(e) => setSecondaryEmail(e.target.value)} className={inputClass} />
+              <label htmlFor="acct-personal" className="block text-sm font-medium text-slate-800">
+                Personal email (optional)
+              </label>
+              <input id="acct-personal" type="email" value={secondaryEmail} onChange={(e) => setSecondaryEmail(e.target.value)} className={inputClass} />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">University</label>
-                <input value={university} onChange={(e) => setUniversity(e.target.value)} className={inputClass} />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Degree program</label>
-                <input value={degreeProgram} onChange={(e) => setDegreeProgram(e.target.value)} className={inputClass} />
-              </div>
-            </div>
-            <button type="submit" disabled={saving} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold">
-              {saving ? 'Saving…' : 'Save Profile'}
+            <button type="submit" disabled={saving} className="rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:opacity-60">
+              {saving ? 'Saving…' : 'Save profile'}
             </button>
           </form>
 
-          <div className="space-y-3 pt-4 border-t border-slate-100">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Change Password</h3>
+          <section aria-labelledby="password-heading" className="space-y-4 border-t border-slate-200 pt-6">
+            <h3 id="password-heading" className="text-lg font-semibold">
+              Password
+            </h3>
             <ChangePasswordForm onChanged={onPasswordChanged} />
-          </div>
+          </section>
+
+          <form onSubmit={handleDelete} aria-labelledby="delete-heading" className="space-y-4 border-t border-slate-200 pt-6">
+            <h3 id="delete-heading" className="text-lg font-semibold">
+              Delete account
+            </h3>
+            <p className="text-sm leading-relaxed text-slate-600">
+              This permanently deletes your account and every submission you have made, including answers, scores and interview details. Professors will no
+              longer see them. It cannot be undone. See{' '}
+              <a href="/data-deletion" className="font-medium text-brand-700 underline underline-offset-2">
+                Data Deletion
+              </a>{' '}
+              for details.
+            </p>
+            {deleteError && (
+              <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {deleteError}
+              </p>
+            )}
+            <div>
+              <label htmlFor="acct-delete-password" className="block text-sm font-medium text-slate-800">
+                Your password
+              </label>
+              <input
+                id="acct-delete-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={confirmDelete} onChange={(e) => setConfirmDelete(e.target.checked)} className="mt-0.5 h-4 w-4 accent-rose-700" />
+              <span>I understand that my account and all of my submissions will be deleted permanently.</span>
+            </label>
+            <button type="submit" disabled={deleting} className="rounded-md border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60">
+              {deleting ? 'Deleting…' : 'Delete my account'}
+            </button>
+          </form>
         </div>
       </div>
     </div>

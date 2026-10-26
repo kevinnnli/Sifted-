@@ -1,14 +1,16 @@
 import { Router } from 'express';
 import type { Database } from '../db';
-import { requireRole, toPublicUser } from '../security';
+import { AttemptLimiter, clearSessionCookie, requireRole, toPublicUser, verifyPassword } from '../security';
+import { eraseStudent } from '../services/accounts';
 import { applyProgress, attemptTiming, createAttempt, finalizeAttempt } from '../services/attempts';
 import type { ExamAttempt } from '../types';
-import { asyncHandler, badRequest, conflict, forbidden, notFound, optionalString, requireEmail, requireEnum, requireString } from '../validation';
+import { asyncHandler, badRequest, conflict, forbidden, notFound, optionalEmail, optionalString, requireEnum, requireString } from '../validation';
 import { getStartBlocker, studentVerificationRequired, toAttemptView, toStudentInvitation, toStudentSubmission } from '../views';
 
 export function studentRoutes(db: Database) {
   const router = Router();
   router.use(requireRole('applicant'));
+  const deleteLimiter = new AttemptLimiter(5, 15 * 60 * 1000); // wrong passwords when deleting, per account
 
   // Everything below is looked up through the signed-in student's own email / id only
   const myInvitations = (email: string) => db.data.invitations.filter((i) => i.applicantEmail.toLowerCase() === email);
@@ -33,7 +35,7 @@ export function studentRoutes(db: Database) {
 
   router.put('/profile', (req, res) => {
     const user = req.user!;
-    const secondaryEmail = requireEmail(req.body?.secondaryEmail, 'Personal email');
+    const secondaryEmail = optionalEmail(req.body?.secondaryEmail, 'Personal email');
     if (secondaryEmail === user.email) throw badRequest('Your personal email must be different from your university email');
     user.secondaryEmail = secondaryEmail;
     user.university = requireString(req.body?.university, 'University', { max: 200 });
@@ -68,7 +70,7 @@ export function studentRoutes(db: Database) {
       if (blocker) throw conflict(blocker);
 
       const details = req.body?.details || {};
-      const secondaryEmail = requireEmail(details.secondaryEmail, 'Personal email');
+      const secondaryEmail = optionalEmail(details.secondaryEmail, 'Personal email');
       if (secondaryEmail === user.email) throw badRequest('Your university email and personal email must be different addresses');
       const attemptDetails: ExamAttempt['details'] = {
         secondaryEmail,
@@ -144,6 +146,24 @@ export function studentRoutes(db: Database) {
     db.save();
     res.json({ success: true });
   });
+
+  // Deletes the student's account and all of their data, after confirming their password
+  router.delete(
+    '/account',
+    asyncHandler(async (req, res) => {
+      const user = req.user!;
+      if (user.isTestAccount) throw badRequest('Test accounts are managed from the admin portal');
+      deleteLimiter.check(user.id);
+      const password = typeof req.body?.password === 'string' ? req.body.password : '';
+      if (!(await verifyPassword(password, user.passwordHash))) {
+        deleteLimiter.record(user.id);
+        throw badRequest('Your password is incorrect');
+      }
+      const removed = eraseStudent(db, user);
+      clearSessionCookie(req, res);
+      res.json({ success: true, removed });
+    })
+  );
 
   return router;
 }

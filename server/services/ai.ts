@@ -13,13 +13,20 @@ export function isAiConfigured(): boolean {
   return Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY');
 }
 
+// Upper bound for one AI call. Grading runs while the student waits for their submission, so a
+// slow or unreachable AI service must never hold it up: on timeout the deterministic result is used.
+const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 20_000;
+
 function getClient(): GoogleGenAI | null {
   if (!isAiConfigured()) return null;
   return new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY!,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' }, timeout: AI_TIMEOUT_MS },
   });
 }
+
+// Log the reason only: AI errors can echo the prompt, which contains student answers
+const logAiError = (what: string, error: unknown) => console.error(`${what} failed:`, error instanceof Error ? error.message : 'unknown error');
 
 const pickAllowed = (value: unknown, allowed: readonly string[], fallback: string) =>
   typeof value === 'string' && allowed.includes(value) ? value : fallback;
@@ -82,6 +89,7 @@ Return a structured JSON object representing the generated question. Make the qu
       model: getModel(),
       contents: prompt,
       config: {
+        abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -128,7 +136,7 @@ Return a structured JSON object representing the generated question. Make the qu
       isFallback: false,
     };
   } catch (error) {
-    console.error('Error generating question with AI:', error);
+    logAiError('AI question generation', error);
     return { question: fallback(), isFallback: true };
   }
 }
@@ -144,7 +152,6 @@ export interface AiGradeResult {
 
 /** Grades open-ended answers against each question's rubric. Returns null when AI is unavailable. */
 export async function gradeWithAI(input: {
-  applicantName: string;
   questions: Question[];
   responses: Record<string, QuestionResponseItem>;
   overallScore: number;
@@ -168,8 +175,9 @@ export async function gradeWithAI(input: {
       autoScore: q.type === 'multiple-choice' ? input.responses[q.id]?.aiScore : undefined,
     }));
 
+    // No names, emails or institutions are sent: the answers alone are what is graded
     const prompt = `You are a Senior Faculty Admissions Evaluator at a top graduate university.
-Review the following screening assessment submission for graduate applicant "${input.applicantName || 'Applicant'}".
+Review the following screening assessment submission from a graduate applicant.
 A provisional difficulty-weighted score of ${input.totalWeightedScore}/${input.maxTotalWeightedScore} (${input.overallScore}%) was computed automatically.
 Multiple-choice questions are already graded exactly (see autoScore). Grade every other question against its rubric and model answer.
 Empty, trivial, off-topic, or boilerplate responses must receive 0 points.
@@ -190,6 +198,7 @@ Provide your evaluation as a JSON object with:
       model: getModel(),
       contents: prompt,
       config: {
+        abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS),
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -239,7 +248,7 @@ Provide your evaluation as a JSON object with:
       aiGeneratedProbability: clampNumber(parsed.aiGeneratedProbability, 0, 100, 0),
     };
   } catch (error) {
-    console.error('Error grading with AI:', error);
+    logAiError('AI grading', error);
     return null;
   }
 }
@@ -260,16 +269,16 @@ export async function writeBriefing(submission: ApplicantSubmission): Promise<{ 
   const ai = getClient();
   if (!ai) return { analysis: buildFallbackBriefing(submission), isFallback: true };
   try {
-    const prompt = `You are an Admissions AI Advisor for a university professor. Write a concise, 3-paragraph executive briefing for the professor preparing to interview graduate applicant "${submission.applicantName}" from ${submission.university}.
+    const prompt = `You are an Admissions AI Advisor for a university professor. Write a concise, 3-paragraph executive briefing for the professor preparing to interview a graduate applicant. Refer to them as "the applicant".
 Score: ${submission.overallScore}%. Recommendation: ${submission.interviewRecommendation}.
 Topic Breakdown: ${JSON.stringify(submission.topicBreakdown)}
 Integrity Report: ${JSON.stringify(submission.integrityReport)}
 
 Highlight their exceptional areas, identify any theoretical gaps to test during the live interview, and comment on their academic integrity profile. Keep the tone professional, insightful, and collegiate.`;
-    const response = await ai.models.generateContent({ model: getModel(), contents: prompt });
+    const response = await ai.models.generateContent({ model: getModel(), contents: prompt, config: { abortSignal: AbortSignal.timeout(AI_TIMEOUT_MS) } });
     return { analysis: response.text || buildFallbackBriefing(submission), isFallback: !response.text };
   } catch (error) {
-    console.error('Error analyzing applicant:', error);
+    logAiError('AI briefing', error);
     return { analysis: buildFallbackBriefing(submission), isFallback: true };
   }
 }

@@ -1,1 +1,111 @@
 @import "tailwindcss";
+
+/*
+ * Sifted design tokens.
+ * A light, paper-toned interface with one restrained primary colour (a deep academic teal),
+ * serif headings and a system sans-serif for body text. Only system fonts are used, so no
+ * font files are downloaded from third parties.
+ *
+ * Contrast (WCAG 2.1): brand-600 and darker pass AA for normal text on white; brand-500 passes
+ * for large text only. Use brand-700 for small coloured text.
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, Cambria, "Times New Roman", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --color-brand-50: #eef6f6;
+  --color-brand-100: #d6eaeb;
+  --color-brand-200: #afd5d7;
+  --color-brand-300: #7fb9bd;
+  --color-brand-400: #4f989e;
+  --color-brand-500: #337c83;
+  --color-brand-600: #28656b;
+  --color-brand-700: #225358;
+  --color-brand-800: #1e4549;
+  --color-brand-900: #1b3a3e;
+  --color-brand-950: #0d2326;
+
+  /* Page background: a warm off-white, so white cards read as paper */
+  --color-paper: #f6f5f1;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-paper text-slate-800 font-sans antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-serif text-slate-900;
+    letter-spacing: -0.01em;
+  }
+
+  /* A clearly visible keyboard focus indicator on every interactive element */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 0;
+  }
+
+  ::selection {
+    background: var(--color-brand-100);
+    color: var(--color-brand-950);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  /* Hidden until focused: lets keyboard users skip straight to the main content */
+  .skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -10rem;
+    z-index: 200;
+    @apply rounded-md bg-white px-4 py-2 text-sm font-semibold text-brand-800 shadow ring-1 ring-slate-300;
+  }
+  .skip-link:focus {
+    top: 1rem;
+  }
+
+  .fade-in {
+    animation: sifted-fade-in 160ms ease-out both;
+  }
+}
+
+@keyframes sifted-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Respect the operating system's reduced-motion setting */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

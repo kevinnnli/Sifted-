@@ -183,7 +183,6 @@ async function gradeAndStore(db: Database, attemptId: string, opts: { autoSubmit
   const ai = opts.skipAi
     ? null
     : await gradeWithAI({
-        applicantName: student?.name || 'Applicant',
         questions: examQuestions,
         responses: evaluatedResponses,
         overallScore: graded.overallScore,

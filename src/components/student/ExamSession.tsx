@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { notify } from '../../notify';
+import { asButton } from '../ui/a11y';
 import {
   AlertCircle,
   AlertTriangle,
@@ -27,8 +29,8 @@ import {
   User,
   X,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { ResponsiveContainer, LineChart, Line, BarChart, Bar, ScatterChart, Scatter, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
+// The chart library is large and only research questions need it, so it loads on demand
+const QuestionChart = lazy(() => import('./QuestionChart'));
 import { ApiError, api, errorMessage } from '../../api';
 import { AttemptProgress, ExamAttemptView, StudentSubmissionView } from '../../types';
 import { evaluateArithmetic, formatTime } from './examUtils';
@@ -64,7 +66,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
   const [isGrading, setIsGrading] = useState(false);
   const [saveState, setSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved');
 
-  // CollegeBoard Digital SAT Layout States
+  // Exam layout state
   const [isTimerHidden, setIsTimerHidden] = useState(false);
   const [showQuestionMenu, setShowQuestionMenu] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
@@ -78,6 +80,11 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
   const [reviewFilter, setReviewFilter] = useState<'all' | 'flagged' | 'unanswered'>('all');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(document.fullscreenElement));
   const [lockdownAlert, setLockdownAlert] = useState<string | null>(null);
+  // Move keyboard and screen-reader focus to the review screen's heading when it opens
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (showSatReviewScreen) reviewHeadingRef.current?.focus();
+  }, [showSatReviewScreen]);
 
   // The clock follows the server: correct for any difference between this device's clock and the server's
   const clockOffsetRef = useRef(Date.parse(attempt.serverNow) - Date.now());
@@ -286,15 +293,15 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
       logIntegrityEvent(`Blocked ${e.type} attempt.`);
       showLockdownAlert(
         e.type === 'paste'
-          ? '⚠️ Security Violation: Pasting external content or code is strictly disabled.'
-          : '⚠️ Security Violation: Copying assessment content is prohibited in Bluebook Secure Mode.'
+          ? 'Pasting is disabled during this test. The attempt has been recorded.'
+          : 'Copying test content is disabled. The attempt has been recorded.'
       );
     };
 
     const handleContextMenu = (e: MouseEvent) => {
       if (!isLockdownActive) return;
       e.preventDefault();
-      showLockdownAlert('⚠️ Security Violation: Right-click context menu is locked during testing.', 3000);
+      showLockdownAlert('The right-click menu is disabled during this test.', 3000);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -307,7 +314,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           setCopyPasteAttempts((prev) => prev + 1);
           logIntegrityEvent(`Blocked clipboard shortcut (${e.key}).`);
         }
-        showLockdownAlert(`⚠️ Security Alert: Shortcut "${e.key}" is intercepted by Bluebook Proctoring Engine.`, 3500);
+        showLockdownAlert(`The ${e.key} shortcut is disabled during this test.`, 3500);
       }
     };
 
@@ -316,7 +323,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
       if (!document.fullscreenElement && isLockdownActive && !finishedRef.current) {
         setTabSwitches((prev) => prev + 1);
         logIntegrityEvent('Exited fullscreen lockdown.');
-        showLockdownAlert('⚠️ Integrity Alert: Fullscreen lockdown exited! This event is logged to your faculty report.');
+        showLockdownAlert('You left full-screen mode. This is recorded in the integrity report your professor sees.');
       }
     };
 
@@ -356,9 +363,18 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
     });
   };
 
-  // Lets the code editor indent with Tab instead of moving focus out of the textarea
+  // Tab indents inside the code editor. So keyboard users are never trapped there, Escape followed by
+  // Tab (or Shift+Tab at any time) moves focus on as usual.
+  const releaseTabRef = useRef(false);
   const handleCodeKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Tab') return;
+    if (e.key === 'Escape') {
+      releaseTabRef.current = true;
+      return;
+    }
+    if (e.key !== 'Tab' || e.shiftKey || releaseTabRef.current) {
+      releaseTabRef.current = false;
+      return;
+    }
     e.preventDefault();
     const target = e.currentTarget;
     const { selectionStart, selectionEnd, value } = target;
@@ -384,7 +400,6 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
       finishedRef.current = true;
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
       try {
-        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       } catch {
         // decorative only
       }
@@ -393,7 +408,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
       submittingRef.current = false;
       setIsGrading(false);
       if (!handleServerRejection(e)) {
-        alert(`Your test could not be submitted: ${errorMessage(e)}\nYour answers are still here — please try again.`);
+        notify(`Your test could not be submitted: ${errorMessage(e)}. Your answers are still here; please try again.`, 'error');
       }
     }
   };
@@ -412,80 +427,81 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
   }
 
   return (
-    <div className="space-y-4 animate-fade-in pb-12">
-      {/* SECURE LOCKDOWN & PROCTORING STATUS RIBBON */}
-      <div className="bg-slate-950 text-slate-200 px-5 py-2.5 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between text-xs font-mono shadow-inner gap-3">
+    <div className="space-y-4 fade-in pb-12">
+      {/* Test status: mode, autosave and integrity events */}
+      <div className="bg-white text-slate-800 px-5 py-2.5 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between text-xs gap-3">
         <div className="flex items-center space-x-3">
           <span className={`flex items-center space-x-1.5 px-2.5 py-1 rounded font-bold border ${
             isLockdownActive 
-              ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/80 shadow-xs' 
-              : 'bg-slate-800 text-slate-300 border-slate-700'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-xs' 
+              : 'bg-slate-100 text-slate-700 border-slate-300'
           }`}>
-            <span className={`w-2 h-2 rounded-full inline-block mr-1 ${isLockdownActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
-            {isLockdownActive ? '🔒 BLUEBOOK SECURE LOCKDOWN ACTIVE' : '🛡️ PROCTORING EYE MONITORING ON'}
+            <span aria-hidden className={`w-2 h-2 rounded-full inline-block mr-1 ${isLockdownActive ? 'bg-emerald-700' : 'bg-slate-400'}`} />
+            {isLockdownActive ? 'Full-screen test mode' : 'Integrity monitoring on'}
           </span>
-          <span className="text-slate-400 hidden lg:inline">
-            Session: <span className="text-slate-200">#{assessment.id.slice(0, 8).toUpperCase()}</span>
+          <span className="text-slate-600 hidden lg:inline">
+            Reference <span className="font-mono text-slate-800">{assessment.id.slice(0, 8).toUpperCase()}</span>
           </span>
         </div>
         <div className="flex items-center space-x-3">
           <span
-            className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
+            className={`px-2 py-0.5 rounded font-bold text-xs border ${
               saveState === 'error'
-                ? 'bg-rose-900/90 text-rose-200 border-rose-600'
+                ? 'bg-rose-50 text-rose-800 border-rose-600'
                 : saveState === 'saved'
-                ? 'bg-slate-800 text-emerald-400 border-slate-700'
-                : 'bg-slate-800 text-slate-300 border-slate-700'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-slate-100 text-slate-700 border-slate-300'
             }`}
+            role="status"
             title="Your answers are saved to the server automatically"
           >
-            {saveState === 'error' ? '⚠️ Not saved — will retry' : saveState === 'saved' ? '✓ Answers saved' : 'Saving…'}
+            {saveState === 'error' ? 'Not saved, retrying' : saveState === 'saved' ? 'Answers saved' : 'Saving…'}
           </span>
           <div className="flex items-center space-x-2">
-            <span className="text-slate-400 text-[11px]">Security Log:</span>
-            <span className={`px-2 py-0.5 rounded font-bold text-[11px] ${
+            <span className="text-slate-600 text-xs">Integrity events:</span>
+            <span className={`px-2 py-0.5 rounded font-bold text-xs ${
               tabSwitches + copyPasteAttempts > 0 
-                ? 'bg-rose-900/90 text-rose-200 border border-rose-600 animate-pulse' 
-                : 'bg-slate-800 text-emerald-400 border border-slate-700'
+                ? 'bg-rose-50 text-rose-800 border border-rose-600' 
+                : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
             }`}>
-              {tabSwitches + copyPasteAttempts === 0 ? '✓ Zero Violations' : `⚠️ ${tabSwitches + copyPasteAttempts} Violations`}
+              {tabSwitches + copyPasteAttempts === 0 ? 'None' : tabSwitches + copyPasteAttempts}
             </span>
           </div>
           <button
             onClick={toggleFullscreen}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded border border-slate-700 flex items-center space-x-1 font-sans font-semibold text-[11px] transition-colors"
-            title="Toggle Fullscreen Lockdown Mode"
+            className="bg-slate-100 hover:bg-slate-100 text-slate-800 px-2.5 py-1 rounded border border-slate-300 flex items-center space-x-1 font-sans font-semibold text-xs transition-colors"
+            title="Enter or leave full-screen mode"
           >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />}
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-brand-800" /> : <Maximize2 className="w-3.5 h-3.5 text-brand-800" />}
             <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
           </button>
           {isLockdownActive && !integrityOptions.fullScreenMode && (
             <button
               onClick={() => {
-                if (window.confirm('WARNING: Exiting Lockdown Mode will terminate your secure proctoring session and log an immediate integrity violation. Do you wish to proceed?')) {
+                if (window.confirm('Leave full-screen mode? You can keep working, but leaving is recorded in the integrity report your professor sees.')) {
                   setIsLockdownActive(false);
                   setTabSwitches((prev) => prev + 1);
                   logIntegrityEvent('Candidate exited lockdown mode manually.');
                   if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
                 }
               }}
-              className="bg-rose-950/80 hover:bg-rose-900 text-rose-300 px-2.5 py-1 rounded border border-rose-800 text-[11px] font-sans font-bold transition-colors"
+              className="bg-white hover:bg-slate-50 text-slate-700 px-2.5 py-1 rounded border border-slate-300 text-xs font-semibold transition-colors"
             >
-              Exit Lockdown
+              Leave full-screen mode
             </button>
           )}
         </div>
       </div>
 
       {isLockdownActive && !isFullscreen && (
-        <div className="bg-amber-500 text-slate-950 p-3.5 rounded-lg shadow-xl flex items-center justify-between text-xs font-bold border border-amber-300">
+        <div role="alert" className="bg-amber-50 text-amber-950 p-3.5 rounded-lg flex items-center justify-between text-sm border border-amber-300">
           <div className="flex items-center space-x-2.5">
-            <Monitor className="w-5 h-5 shrink-0" />
-            <span>This assessment runs in fullscreen lockdown. Please return to fullscreen to continue.</span>
+            <Monitor className="w-5 h-5 shrink-0 text-amber-700" aria-hidden />
+            <span>This test runs in full-screen mode. Please return to full screen to continue.</span>
           </div>
           <button
             onClick={toggleFullscreen}
-            className="bg-slate-950 text-amber-300 px-3 py-1.5 rounded font-bold hover:bg-slate-800 transition-colors shrink-0"
+            className="bg-amber-900 text-white px-3 py-1.5 rounded font-semibold hover:bg-amber-950 transition-colors shrink-0"
           >
             Enter Fullscreen
           </button>
@@ -493,7 +509,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
       )}
 
       {isInGracePeriod && (
-        <div className="bg-amber-600 text-white p-3.5 rounded-lg shadow-xl flex items-center justify-between text-xs font-bold border border-amber-400">
+        <div className="bg-amber-600 text-white p-3.5 rounded-lg shadow-md flex items-center justify-between text-xs font-bold border border-amber-400">
           <div className="flex items-center space-x-2.5">
             <Clock className="w-5 h-5 shrink-0" />
             <span>Time is up — you're in the late-submission grace period. Your answers will be submitted automatically in {formatTime(graceLeftSeconds)}.</span>
@@ -501,47 +517,46 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
         </div>
       )}
 
-      {/* Floating Security Violation Alerts */}
+      {/* Integrity messages */}
       {showCheatWarning && (
-        <div className="bg-red-600 text-white p-3.5 rounded-lg shadow-xl flex items-center justify-between text-xs font-bold animate-bounce border border-red-400">
+        <div role="alert" className="bg-amber-50 text-amber-950 p-3.5 rounded-lg flex items-center justify-between text-sm border border-amber-300">
           <div className="flex items-center space-x-2.5">
-            <AlertTriangle className="w-5 h-5 shrink-0" />
-            <span>INTEGRITY ALERT: Browser tab focus loss detected! This event has been logged to your faculty report.</span>
+            <AlertTriangle className="w-5 h-5 shrink-0 text-amber-700" aria-hidden />
+            <span>You left the test window. This is recorded in the integrity report your professor sees.</span>
           </div>
-          <span className="bg-red-950 px-2.5 py-1 rounded text-[10px] uppercase font-mono tracking-wider">Warning #{tabSwitches}</span>
+          <span className="rounded bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 ring-1 ring-amber-300">Event {tabSwitches}</span>
         </div>
       )}
 
       {lockdownAlert && (
-        <div className="bg-rose-600 text-white p-3.5 rounded-lg shadow-xl flex items-center justify-between text-xs font-bold animate-bounce border border-rose-400">
+        <div role="alert" className="bg-amber-50 text-amber-950 p-3.5 rounded-lg flex items-center text-sm border border-amber-300">
           <div className="flex items-center space-x-2.5">
-            <ShieldAlert className="w-5 h-5 shrink-0 animate-pulse text-amber-300" />
+            <ShieldAlert className="w-5 h-5 shrink-0 text-amber-700" aria-hidden />
             <span>{lockdownAlert}</span>
           </div>
-          <span className="bg-rose-950 px-2.5 py-1 rounded text-[10px] uppercase font-mono tracking-wider">Logged Violation</span>
         </div>
       )}
 
-      {/* 1. COLLEGEBOARD DIGITAL SAT TOP NAVBAR */}
-      <div className="bg-[#0F172A] text-white px-6 py-3.5 rounded-t-lg shadow-md border-b border-slate-700 flex flex-wrap items-center justify-between gap-4">
+      {/* 1. Test header: section, timer and tools */}
+      <div className="bg-white text-slate-900 px-6 py-3.5 rounded-t-lg border border-slate-200 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
-          <span className="font-extrabold tracking-tight text-sm text-white">
+          <span className="font-semibold tracking-tight text-sm text-slate-900">
             Section 1: {assessment.title || 'Technical & Algorithmic Screening'}
           </span>
-          <span className="hidden md:inline-block text-[11px] text-slate-400 bg-slate-800 px-2.5 py-0.5 rounded border border-slate-700 font-medium">
+          <span className="hidden md:inline-block text-xs text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-300 font-medium">
             Directions: Answer each prompt. Use scratchpad & calculator as needed.
           </span>
         </div>
 
         {/* Timer Box */}
-        <div className="flex items-center space-x-3 bg-slate-800/80 px-4 py-1.5 rounded-full border border-slate-700">
-          <Clock className={`w-4 h-4 ${timeLeftSeconds < 300 && !isTimerHidden ? 'text-rose-400 animate-pulse' : 'text-slate-300'}`} />
-          <span className={`font-mono font-bold text-xs ${timeLeftSeconds < 300 && !isTimerHidden ? 'text-rose-400 animate-pulse' : 'text-slate-100'}`}>
+        <div className="flex items-center space-x-3 bg-slate-100 px-4 py-1.5 rounded-full border border-slate-300">
+          <Clock className={`w-4 h-4 ${timeLeftSeconds < 300 && !isTimerHidden ? 'text-rose-800' : 'text-slate-700'}`} />
+          <span className={`font-mono font-bold text-xs ${timeLeftSeconds < 300 && !isTimerHidden ? 'text-rose-800' : 'text-slate-900'}`}>
             {isTimerHidden ? 'Timer Hidden' : isInGracePeriod ? `Grace ${formatTime(graceLeftSeconds)}` : formatTime(timeLeftSeconds)}
           </span>
           <button
             onClick={() => setIsTimerHidden(!isTimerHidden)}
-            className="text-slate-400 hover:text-white transition-colors focus:outline-none flex items-center space-x-1 pl-2 border-l border-slate-600 text-[11px] font-medium"
+            className="text-slate-600 hover:text-slate-900 transition-colors focus:outline-none flex items-center space-x-1 pl-2 border-l border-slate-300 text-xs font-medium"
             title={isTimerHidden ? 'Show Timer' : 'Hide Timer'}
           >
             {isTimerHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -554,7 +569,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           <button
             onClick={() => { setShowCalculator(!showCalculator); setShowReferenceSheet(false); }}
             className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center space-x-1.5 transition-colors border ${
-              showCalculator ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+              showCalculator ? 'bg-brand-600 text-white border-brand-500' : 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-100'
             }`}
           >
             <Calculator className="w-3.5 h-3.5" />
@@ -563,7 +578,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           <button
             onClick={() => { setShowReferenceSheet(!showReferenceSheet); setShowCalculator(false); }}
             className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center space-x-1.5 transition-colors border ${
-              showReferenceSheet ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+              showReferenceSheet ? 'bg-brand-600 text-white border-brand-500' : 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-100'
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
@@ -574,23 +589,23 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
 
       {/* 2. ON-SCREEN CALCULATOR & SCRATCHPAD DRAWER */}
       {showCalculator && (
-        <div className="bg-slate-900 border border-slate-700 p-6 rounded-lg text-white shadow-xl animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+        <div className="bg-white border border-slate-300 p-6 rounded-lg text-slate-900 shadow-md fade-in grid grid-cols-1 md:grid-cols-2 gap-6 relative">
           <button
             onClick={() => setShowCalculator(false)}
-            className="absolute top-4 right-4 text-slate-400 hover:text-white"
+            className="absolute top-4 right-4 text-slate-600 hover:text-slate-900"
           >
             <X className="w-5 h-5" />
           </button>
 
           {/* Scientific / Basic Calculator */}
           <div className="space-y-3">
-            <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
-              <Calculator className="w-4 h-4 text-indigo-400" />
-              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-200">On-Screen SAT Scientific Calculator</h3>
+            <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
+              <Calculator className="w-4 h-4 text-brand-800" />
+              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-800">Calculator</h3>
             </div>
-            <div className="bg-slate-950 p-3 rounded border border-slate-800 text-right font-mono space-y-1">
-              <div className="text-xs text-slate-500 min-h-[16px]">{calcInput || '0'}</div>
-              <div className="text-xl font-bold text-emerald-400 overflow-x-auto min-h-[28px]">{calcResult || calcInput || '0'}</div>
+            <div className="bg-paper p-3 rounded border border-slate-200 text-right font-mono space-y-1">
+              <div className="text-xs text-slate-600 min-h-[16px]">{calcInput || '0'}</div>
+              <div className="text-xl font-bold text-emerald-800 overflow-x-auto min-h-[28px]">{calcResult || calcInput || '0'}</div>
             </div>
             <div className="grid grid-cols-5 gap-1.5 text-xs font-mono font-bold">
               {['C', 'CE', '(', ')', '√', '7', '8', '9', '/', 'x²', '4', '5', '6', '*', '%', '1', '2', '3', '-', '.', '0', '00', '+', '='].map((btn, idx) => (
@@ -598,10 +613,10 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                   key={idx}
                   onClick={() => handleCalcButton(btn)}
                   className={`py-2.5 rounded transition-all active:scale-95 border ${
-                    btn === '=' ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 col-span-2' :
-                    ['C', 'CE'].includes(btn) ? 'bg-rose-900/60 hover:bg-rose-800 text-rose-200 border-rose-800' :
-                    ['/', '*', '-', '+', '√', 'x²', '%'].includes(btn) ? 'bg-slate-800 hover:bg-slate-700 text-indigo-300 border-slate-700' :
-                    'bg-slate-800/80 hover:bg-slate-700 text-slate-100 border-slate-700'
+                    btn === '=' ? 'bg-brand-600 hover:bg-brand-500 text-white border-brand-500 col-span-2' :
+                    ['C', 'CE'].includes(btn) ? 'bg-rose-50 hover:bg-rose-800 text-rose-800 border-rose-800' :
+                    ['/', '*', '-', '+', '√', 'x²', '%'].includes(btn) ? 'bg-slate-100 hover:bg-slate-100 text-brand-700 border-slate-300' :
+                    'bg-slate-100 hover:bg-slate-100 text-slate-900 border-slate-300'
                   }`}
                 >
                   {btn}
@@ -612,79 +627,79 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
 
           {/* Digital Scratchpad */}
           <div className="space-y-3 flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
               <div className="flex items-center space-x-2">
-                <FileText className="w-4 h-4 text-amber-400" />
-                <h3 className="font-bold text-xs uppercase tracking-wider text-slate-200">Digital Scratchpad & Notes</h3>
+                <FileText className="w-4 h-4 text-amber-800" />
+                <h3 className="font-bold text-xs uppercase tracking-wider text-slate-800">Digital Scratchpad & Notes</h3>
               </div>
               <button
                 onClick={() => setScratchpadText('')}
-                className="text-[10px] text-slate-400 hover:text-rose-400 underline font-medium"
+                className="text-xs text-slate-600 hover:text-rose-800 underline font-medium"
               >
                 Clear Notes
               </button>
             </div>
-            <p className="text-[11px] text-slate-400">Jot down intermediate algebraic steps, complexity bounds, or pseudo-code.</p>
-            <textarea
+            <p className="text-xs text-slate-600">Jot down intermediate algebraic steps, complexity bounds, or pseudo-code.</p>
+            <textarea aria-label="Scratchpad"
               rows={8}
               value={scratchpadText}
               onChange={(e) => setScratchpadText(e.target.value)}
               placeholder="Type your scratchpad calculations here... (persist during session)"
-              className="w-full flex-1 p-3 bg-slate-950 border border-slate-800 rounded font-mono text-xs text-amber-300 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed resize-none"
+              className="w-full flex-1 p-3 bg-paper border border-slate-200 rounded font-mono text-xs text-amber-800 placeholder:text-slate-600 focus:outline-none focus:border-brand-500 leading-relaxed resize-none"
             />
           </div>
         </div>
       )}
 
-      {/* 3. SAT FORMULA & REFERENCE SHEET MODAL */}
+      {/* 3. Reference sheet */}
       {showReferenceSheet && (
-        <div className="bg-slate-900 border border-slate-700 p-6 rounded-lg text-white shadow-xl animate-fade-in space-y-4 relative">
+        <div className="bg-white border border-slate-300 p-6 rounded-lg text-slate-900 shadow-md fade-in space-y-4 relative">
           <button
             onClick={() => setShowReferenceSheet(false)}
-            className="absolute top-4 right-4 text-slate-400 hover:text-white"
+            className="absolute top-4 right-4 text-slate-600 hover:text-slate-900"
           >
             <X className="w-5 h-5" />
           </button>
-          <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
-            <BookOpen className="w-5 h-5 text-indigo-400" />
-            <h3 className="font-bold text-sm uppercase tracking-wider text-slate-200">SAT / Graduate Research Standard Reference & Cheat Sheet</h3>
+          <div className="flex items-center space-x-2 border-b border-slate-200 pb-3">
+            <BookOpen className="w-5 h-5 text-brand-800" />
+            <h3 className="font-bold text-sm uppercase tracking-wider text-slate-800">Reference sheet</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            <div className="bg-slate-950 p-4 rounded border border-slate-800 space-y-2 font-mono">
-              <div className="text-indigo-400 font-bold uppercase text-[11px] border-b border-slate-800 pb-1">Linear Algebra & SVD</div>
-              <div className="text-slate-300">A = U Σ Vᵀ</div>
-              <div className="text-slate-400 text-[11px]">UᵀU = I, VᵀV = I</div>
-              <div className="text-slate-300 pt-1">Ridge Regression (L2):</div>
-              <div className="text-amber-300">w = (XᵀX + λI)⁻¹ Xᵀy</div>
+            <div className="bg-paper p-4 rounded border border-slate-200 space-y-2 font-mono">
+              <div className="text-brand-800 font-bold uppercase text-xs border-b border-slate-200 pb-1">Linear Algebra & SVD</div>
+              <div className="text-slate-700">A = U Σ Vᵀ</div>
+              <div className="text-slate-600 text-xs">UᵀU = I, VᵀV = I</div>
+              <div className="text-slate-700 pt-1">Ridge Regression (L2):</div>
+              <div className="text-amber-800">w = (XᵀX + λI)⁻¹ Xᵀy</div>
             </div>
-            <div className="bg-slate-950 p-4 rounded border border-slate-800 space-y-2 font-mono">
-              <div className="text-emerald-400 font-bold uppercase text-[11px] border-b border-slate-800 pb-1">Asymptotic Big-O Complexity</div>
-              <div className="text-slate-300">Merge Sort: O(N log N)</div>
-              <div className="text-slate-300">Quick Sort (Avg): O(N log N)</div>
-              <div className="text-slate-300">Matrix Mult (Naive): O(N³)</div>
-              <div className="text-amber-300">Attention (Self): O(N² • d)</div>
+            <div className="bg-paper p-4 rounded border border-slate-200 space-y-2 font-mono">
+              <div className="text-emerald-800 font-bold uppercase text-xs border-b border-slate-200 pb-1">Asymptotic Big-O Complexity</div>
+              <div className="text-slate-700">Merge Sort: O(N log N)</div>
+              <div className="text-slate-700">Quick Sort (Avg): O(N log N)</div>
+              <div className="text-slate-700">Matrix Mult (Naive): O(N³)</div>
+              <div className="text-amber-800">Attention (Self): O(N² • d)</div>
             </div>
-            <div className="bg-slate-950 p-4 rounded border border-slate-800 space-y-2 font-mono">
-              <div className="text-purple-400 font-bold uppercase text-[11px] border-b border-slate-800 pb-1">Probability & ML Bounds</div>
-              <div className="text-slate-300">Bayes' Rule:</div>
-              <div className="text-amber-300">P(A|B) = [P(B|A)P(A)] / P(B)</div>
-              <div className="text-slate-300 pt-1">Softmax: σ(z)ᵢ = e^(zᵢ) / Σ e^(zⱼ)</div>
+            <div className="bg-paper p-4 rounded border border-slate-200 space-y-2 font-mono">
+              <div className="text-brand-800 font-bold uppercase text-xs border-b border-slate-200 pb-1">Probability & ML Bounds</div>
+              <div className="text-slate-700">Bayes' Rule:</div>
+              <div className="text-amber-800">P(A|B) = [P(B|A)P(A)] / P(B)</div>
+              <div className="text-slate-700 pt-1">Softmax: σ(z)ᵢ = e^(zᵢ) / Σ e^(zⱼ)</div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. SAT CHECK YOUR WORK / SUMMARY SCREEN OR SINGLE QUESTION VIEW */}
+      {/* 4. Review screen, or a single question */}
       {showSatReviewScreen ? (
-        <div className="bg-white p-6 md:p-8 rounded-b-lg border border-slate-200 shadow-sm space-y-6 animate-fade-in">
+        <div className="bg-white p-6 md:p-8 rounded-b-lg border border-slate-200 shadow-sm space-y-6 fade-in">
           <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-200 pb-4 gap-4">
             <div>
               <div className="flex items-center space-x-2">
-                <CheckCircle2 className="w-6 h-6 text-indigo-600" />
-                <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Check Your Work • Section Summary</h2>
+                <CheckCircle2 className="w-6 h-6 text-brand-600" />
+                <h2 ref={reviewHeadingRef} tabIndex={-1} className="text-xl font-semibold text-slate-900 tracking-tight outline-none">Check your work</h2>
               </div>
               <p className="text-xs text-slate-600 mt-1">
-                On the Digital SAT and this doctoral screening, you can check any questions you flagged for review or left unanswered before submitting.
+                Before you submit, you can return to any question you marked for review or left unanswered.
               </p>
             </div>
             <div className="flex items-center space-x-3">
@@ -698,7 +713,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               <button
                 onClick={() => handleSubmitAssessment()}
                 disabled={isGrading}
-                className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-2"
+                className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-2"
               >
                 {isGrading ? (
                   <>
@@ -719,19 +734,19 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div 
               onClick={() => setReviewFilter('all')}
-              className={`p-4 rounded-lg border cursor-pointer transition-all ${reviewFilter === 'all' ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}
+              className={`p-4 rounded-lg border cursor-pointer transition-all ${reviewFilter === 'all' ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-200' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'}`}
             >
-              <span className="text-[11px] font-bold text-slate-500 uppercase block">Total Questions</span>
-              <span className="text-2xl font-extrabold text-slate-900">{examQuestions.length}</span>
+              <span className="text-xs font-bold text-slate-600 uppercase block">Total Questions</span>
+              <span className="text-2xl font-semibold text-slate-900">{examQuestions.length}</span>
             </div>
             <div 
               onClick={() => setReviewFilter('all')}
               className="p-4 rounded-lg border bg-emerald-50/50 border-emerald-200 cursor-pointer"
             >
-              <span className="text-[11px] font-bold text-emerald-700 uppercase block flex items-center gap-1">
+              <span className="text-xs font-bold text-emerald-700 uppercase block flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Answered
               </span>
-              <span className="text-2xl font-extrabold text-emerald-700">
+              <span className="text-2xl font-semibold text-emerald-700">
                 {examQuestions.filter(q => isQuestionAnswered(q.id)).length}
               </span>
             </div>
@@ -739,10 +754,10 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               onClick={() => setReviewFilter('unanswered')}
               className={`p-4 rounded-lg border cursor-pointer transition-all ${reviewFilter === 'unanswered' ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-200' : 'bg-amber-50/40 border-amber-200 hover:bg-amber-100/50'}`}
             >
-              <span className="text-[11px] font-bold text-amber-800 uppercase block flex items-center gap-1">
+              <span className="text-xs font-bold text-amber-800 uppercase block flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5" /> Unanswered
               </span>
-              <span className="text-2xl font-extrabold text-amber-800">
+              <span className="text-2xl font-semibold text-amber-800">
                 {examQuestions.filter(q => !isQuestionAnswered(q.id)).length}
               </span>
             </div>
@@ -750,10 +765,10 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               onClick={() => setReviewFilter('flagged')}
               className={`p-4 rounded-lg border cursor-pointer transition-all ${reviewFilter === 'flagged' ? 'bg-rose-50 border-rose-500 ring-2 ring-rose-200' : 'bg-rose-50/40 border-rose-200 hover:bg-rose-100/50'}`}
             >
-              <span className="text-[11px] font-bold text-rose-800 uppercase block flex items-center gap-1">
+              <span className="text-xs font-bold text-rose-800 uppercase block flex items-center gap-1">
                 <Flag className="w-3.5 h-3.5 fill-current" /> Marked for Review
               </span>
-              <span className="text-2xl font-extrabold text-rose-800">
+              <span className="text-2xl font-semibold text-rose-800">
                 {Object.values(flaggedQuestions).filter(Boolean).length}
               </span>
             </div>
@@ -761,14 +776,14 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
 
           {/* Filter Tabs */}
           <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
-            <span className="text-xs font-bold text-slate-500 mr-2">Filter View:</span>
+            <span className="text-xs font-bold text-slate-600 mr-2">Filter View:</span>
             {(['all', 'unanswered', 'flagged'] as const).map((filter) => (
               <button
                 key={filter}
                 onClick={() => setReviewFilter(filter)}
                 className={`px-3 py-1 rounded-full text-xs font-bold capitalize transition-colors ${
                   reviewFilter === filter
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-brand-700 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -792,34 +807,34 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                 return (
                   <div
                     key={q.id}
-                    onClick={() => {
+                    {...asButton(() => {
                       setCurrentQuestionIndex(idx);
                       setShowSatReviewScreen(false);
-                    }}
+                    })}
                     className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md flex flex-col justify-between space-y-3 relative ${
                       flagged ? 'border-amber-500 bg-amber-50/30' : answered ? 'border-slate-200 bg-white hover:border-slate-300' : 'border-dashed border-rose-300 bg-rose-50/20'
                     }`}
                   >
                     {flagged && (
-                      <div className="absolute top-3 right-3 text-amber-600 flex items-center space-x-1 bg-amber-100 px-2 py-0.5 rounded text-[10px] font-bold">
+                      <div className="absolute top-3 right-3 text-amber-700 flex items-center space-x-1 bg-amber-100 px-2 py-0.5 rounded text-xs font-bold">
                         <Flag className="w-3 h-3 fill-current" />
                         <span>Flagged</span>
                       </div>
                     )}
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="w-6 h-6 rounded bg-slate-900 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                        <span className="w-6 h-6 rounded bg-brand-700 text-white text-xs font-bold flex items-center justify-center shrink-0">
                           {idx + 1}
                         </span>
-                        <span className="text-xs font-bold text-slate-500 truncate">{q.topic}</span>
+                        <span className="text-xs font-bold text-slate-600 truncate">{q.topic}</span>
                       </div>
                       <h4 className="text-sm font-bold text-slate-900 mt-2 line-clamp-2">{q.title}</h4>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                      <span className={`font-bold ${answered ? 'text-emerald-600 flex items-center gap-1' : 'text-rose-600 flex items-center gap-1'}`}>
+                      <span className={`font-bold ${answered ? 'text-emerald-700 flex items-center gap-1' : 'text-rose-600 flex items-center gap-1'}`}>
                         {answered ? <><CheckCircle2 className="w-3.5 h-3.5" /> Answered</> : <><AlertCircle className="w-3.5 h-3.5" /> Unanswered</>}
                       </span>
-                      <span className="text-indigo-600 font-semibold hover:underline">Jump to # {idx + 1} →</span>
+                      <span className="text-brand-600 font-semibold hover:underline">Jump to # {idx + 1} →</span>
                     </div>
                   </div>
                 );
@@ -827,22 +842,22 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           </div>
         </div>
       ) : (
-        /* SINGLE QUESTION VIEW (SAT BLUEBOOK STYLE) */
+        /* Single question view */
         <div className="bg-white p-6 md:p-8 rounded-b-lg border border-t-0 border-slate-200 shadow-sm space-y-6">
           {/* Question Header Bar */}
           <div className="flex flex-wrap items-center justify-between border-b border-slate-200 pb-4 gap-3">
             <div className="flex items-center space-x-3">
-              <span className="w-8 h-8 rounded-md bg-slate-900 text-white font-extrabold text-sm flex items-center justify-center shadow-xs">
+              <span className="w-8 h-8 rounded-md bg-brand-700 text-white font-semibold text-sm flex items-center justify-center shadow-xs">
                 {currentQuestionIndex + 1}
               </span>
               <div>
                 <div className="flex items-center space-x-2">
-                  <h2 className="text-base font-extrabold text-slate-900">{currentQuestion.title}</h2>
-                  <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                  <h2 className="text-base font-semibold text-slate-900">{currentQuestion.title}</h2>
+                  <span className="text-xs font-bold text-brand-700 bg-brand-50 px-2 py-0.5 rounded border border-brand-200">
                     {currentQuestion.difficulty}
                   </span>
                 </div>
-                <span className="text-xs text-slate-500 font-medium">{currentQuestion.topic} • {currentQuestion.points} Points</span>
+                <span className="text-xs text-slate-600 font-medium">{currentQuestion.topic} • {currentQuestion.points} Points</span>
               </div>
             </div>
 
@@ -853,10 +868,10 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                   onClick={() => setIsEliminatorActive(!isEliminatorActive)}
                   className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center space-x-1.5 transition-all border ${
                     isEliminatorActive
-                      ? 'bg-purple-600 text-white border-purple-700 shadow-sm'
+                      ? 'bg-brand-600 text-white border-brand-700 shadow-sm'
                       : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                   }`}
-                  title="SAT Option Eliminator: Cross out choices you know are incorrect"
+                  title="Cross out options you have ruled out"
                 >
                   <Scissors className="w-3.5 h-3.5" />
                   <span>{isEliminatorActive ? 'Eliminator On' : 'Eliminate Choices'}</span>
@@ -867,7 +882,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                 onClick={() => toggleFlag(currentQuestion.id)}
                 className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center space-x-1.5 transition-all border ${
                   flaggedQuestions[currentQuestion.id]
-                    ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                    ? 'bg-amber-500 text-slate-900 border-amber-600 shadow-sm'
                     : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
                 }`}
               >
@@ -889,114 +904,92 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               </div>
             )}
             {currentQuestion.paperExcerpt && (
-              <blockquote className="bg-white p-3 rounded-md border-l-4 border-indigo-400 text-xs text-slate-700 italic whitespace-pre-wrap">
+              <blockquote className="bg-white p-3 rounded-md border-l-4 border-brand-400 text-xs text-slate-700 italic whitespace-pre-wrap">
                 {currentQuestion.paperExcerpt}
               </blockquote>
             )}
             {currentQuestion.chartData && currentQuestion.chartData.length > 0 && currentQuestion.chartType !== 'none' && (
-              <div className="h-64 w-full bg-white rounded-md border border-slate-200 p-3">
-                <ResponsiveContainer width="100%" height="100%">
-                  {currentQuestion.chartType === 'bar' ? (
-                    <BarChart data={currentQuestion.chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="x" tick={{ fill: '#475569', fontSize: 11 }} />
-                      <YAxis tick={{ fill: '#475569', fontSize: 11 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="y" name="Series 1" fill="#6366f1" />
-                      {currentQuestion.chartData.some((d) => d.y2 !== undefined) && <Bar dataKey="y2" name="Series 2" fill="#f59e0b" />}
-                    </BarChart>
-                  ) : currentQuestion.chartType === 'scatter' ? (
-                    <ScatterChart>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="x" tick={{ fill: '#475569', fontSize: 11 }} />
-                      <YAxis dataKey="y" tick={{ fill: '#475569', fontSize: 11 }} />
-                      <Tooltip />
-                      <Scatter data={currentQuestion.chartData} fill="#6366f1" />
-                    </ScatterChart>
-                  ) : (
-                    <LineChart data={currentQuestion.chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="x" tick={{ fill: '#475569', fontSize: 11 }} />
-                      <YAxis tick={{ fill: '#475569', fontSize: 11 }} />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="y" name="Series 1" stroke="#6366f1" strokeWidth={2} />
-                      {currentQuestion.chartData.some((d) => d.y2 !== undefined) && (
-                        <Line type="monotone" dataKey="y2" name="Series 2" stroke="#f59e0b" strokeWidth={2} />
-                      )}
-                    </LineChart>
-                  )}
-                </ResponsiveContainer>
-              </div>
+              <Suspense fallback={<div className="h-64 w-full rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-600">Loading chart…</div>}>
+                <QuestionChart chartType={currentQuestion.chartType} data={currentQuestion.chartData} />
+              </Suspense>
             )}
 
             {/* If Math LaTeX */}
             {currentQuestion.latexFormula && (
-              <div className="bg-[#0F172A] text-amber-300 font-mono p-4 rounded-md border border-slate-700 overflow-x-auto text-xs my-3">
-                <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-1">Mathematical Formula / Expression:</span>
+              <div className="bg-slate-50 text-slate-900 font-mono p-4 rounded-md border border-slate-200 overflow-x-auto text-sm my-3">
+                <span className="text-slate-600 block text-xs uppercase tracking-wider mb-1">Mathematical Formula / Expression:</span>
                 {currentQuestion.latexFormula}
               </div>
             )}
           </div>
 
-          {/* If Multiple Choice (With SAT Option Eliminator / Strikethrough) */}
+          {/* Multiple choice, with optional cross-out of ruled-out options */}
           {currentQuestion.type === 'multiple-choice' && currentQuestion.options && (
-            <div className="space-y-3 pt-2">
+            <fieldset className="space-y-3 pt-2">
+              <legend className="sr-only">Answer options</legend>
               {currentQuestion.options.map((opt, i) => {
                 const isSelected = responses[currentQuestion.id] === opt;
                 const isEliminated = (eliminatedOptions[currentQuestion.id] || []).includes(opt);
+                const letter = String.fromCharCode(65 + i);
 
                 return (
-                  <div
-                    key={i}
-                    onClick={() => {
-                      if (isEliminatorActive) {
-                        toggleEliminateOption(currentQuestion.id, opt);
-                      } else {
-                        if (!isEliminated) handleAnswerChange(opt);
-                      }
-                    }}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all flex items-center justify-between shadow-sm ${
-                      isEliminated
-                        ? 'bg-slate-100/60 border-slate-200 opacity-60 line-through text-slate-400'
-                        : isSelected
-                        ? 'bg-indigo-50/90 border-indigo-600 ring-1 ring-indigo-600'
-                        : 'bg-white border-slate-300 hover:border-slate-400'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3.5">
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center font-bold text-xs justify-center shrink-0 ${
-                        isEliminated ? 'border-slate-300 bg-slate-200 text-slate-500' :
-                        isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-400 text-slate-600'
-                      }`}>
-                        {String.fromCharCode(65 + i)}
-                      </div>
-                      <span className={`text-sm font-medium ${isEliminated ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                        {opt}
+                  <div key={i} className="flex items-stretch gap-2">
+                    <label
+                      onClick={(e) => {
+                        // In cross-out mode a click rules the option out instead of choosing it
+                        if (isEliminatorActive) {
+                          e.preventDefault();
+                          toggleEliminateOption(currentQuestion.id, opt);
+                        }
+                      }}
+                      className={`flex flex-1 cursor-pointer items-center gap-3.5 rounded-lg border p-4 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-600 has-[:focus-visible]:ring-offset-2 ${
+                        isEliminated
+                          ? 'border-slate-200 bg-slate-50 text-slate-600'
+                          : isSelected
+                            ? 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
+                            : 'border-slate-300 bg-white hover:border-slate-400'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`question-${currentQuestion.id}`}
+                        value={opt}
+                        checked={isSelected}
+                        disabled={isEliminated && !isEliminatorActive}
+                        onChange={() => {
+                          if (!isEliminated) handleAnswerChange(opt);
+                        }}
+                        className="sr-only"
+                      />
+                      <span
+                        aria-hidden
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold ${
+                          isEliminated ? 'border-slate-300 bg-slate-100 text-slate-600' : isSelected ? 'border-brand-700 bg-brand-700 text-white' : 'border-slate-400 text-slate-600'
+                        }`}
+                      >
+                        {letter}
                       </span>
-                    </div>
-
-                    {/* Strikethrough Button */}
+                      <span className={`text-sm font-medium ${isEliminated ? 'line-through' : 'text-slate-900'}`}>
+                        <span className="sr-only">Option {letter}: </span>
+                        {opt}
+                        {isEliminated && <span className="sr-only"> (crossed out)</span>}
+                      </span>
+                    </label>
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleEliminateOption(currentQuestion.id, opt);
-                      }}
-                      className={`px-2 py-1 rounded text-[11px] font-bold transition-colors border ${
-                        isEliminated
-                          ? 'bg-slate-300 text-slate-700 border-slate-400'
-                          : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-800'
+                      onClick={() => toggleEliminateOption(currentQuestion.id, opt)}
+                      aria-pressed={isEliminated}
+                      aria-label={isEliminated ? `Restore option ${letter}` : `Cross out option ${letter}`}
+                      className={`shrink-0 rounded-lg border px-3 text-xs font-semibold transition-colors ${
+                        isEliminated ? 'border-slate-400 bg-slate-200 text-slate-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
-                      title="Strike through option"
                     >
-                      {isEliminated ? 'Undo Strike' : '~~ Strike'}
+                      {isEliminated ? 'Restore' : 'Cross out'}
                     </button>
                   </div>
                 );
               })}
-            </div>
+            </fieldset>
           )}
 
           {/* If Short Answer or Essay */}
@@ -1004,14 +997,14 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             <div className="space-y-2 pt-2">
               <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
                 <span>Your Written Response / Derivation:</span>
-                <span className="text-[11px] font-normal text-slate-400">Math expressions & detailed steps accepted</span>
+                <span className="text-xs font-normal text-slate-600">Math expressions & detailed steps accepted</span>
               </label>
-              <textarea
+              <textarea aria-label="Your answer"
                 rows={currentQuestion.type === 'long-form-essay' ? 8 : 4}
                 value={responses[currentQuestion.id] || ''}
                 onChange={(e) => handleAnswerChange(e.target.value)}
                 placeholder="Type your rigorous answer or mathematical steps here..."
-                className="w-full p-4 bg-white border border-slate-300 rounded-md text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-normal leading-relaxed shadow-sm"
+                className="w-full p-4 bg-white border border-slate-300 rounded-md text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 font-normal leading-relaxed shadow-sm"
               />
             </div>
           )}
@@ -1021,30 +1014,34 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             <div className="space-y-4 pt-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700 flex items-center">
-                  <Code className="w-4 h-4 mr-1.5 text-indigo-600" />
+                  <Code className="w-4 h-4 mr-1.5 text-brand-600" />
                   Interactive Code Editor ({currentQuestion.language || 'Python'})
                 </span>
                 <button
                   onClick={handleRunTestCases}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors"
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-1.5 rounded-md text-xs font-medium shadow-sm flex items-center space-x-1.5 transition-colors"
                 >
                   <Terminal className="w-3.5 h-3.5" />
                   <span>View Sample Test Cases</span>
                 </button>
               </div>
 
-              <textarea
+              <p id="code-keys-hint" className="text-xs text-slate-600">
+                Tab inserts spaces. To move to the next control, press Esc and then Tab.
+              </p>
+              <textarea aria-label="Your code"
+                aria-describedby="code-keys-hint"
                 rows={10}
                 spellCheck={false}
                 value={responses[currentQuestion.id] ?? currentQuestion.codeTemplate ?? ''}
                 onChange={(e) => handleAnswerChange(e.target.value)}
                 onKeyDown={handleCodeKeyDown}
-                className="w-full p-4 bg-[#0F172A] text-emerald-400 font-mono rounded-md border border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed shadow-sm"
+                className="w-full p-4 bg-slate-50 text-slate-900 font-mono rounded-md border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600/30 focus:border-brand-600 leading-relaxed"
               />
 
               {/* Test Case Output */}
               {testCaseResults[currentQuestion.id] && (
-                <div className="bg-emerald-50/80 border border-emerald-300 p-4 rounded-md text-emerald-900 text-xs font-mono animate-fade-in shadow-sm whitespace-pre-wrap">
+                <div className="bg-emerald-50/80 border border-emerald-300 p-4 rounded-md text-emerald-900 text-xs font-mono fade-in shadow-sm whitespace-pre-wrap">
                   <span className="font-bold uppercase tracking-wider block mb-1">Test Cases:</span>
                   {testCaseResults[currentQuestion.id]}
                 </div>
@@ -1054,19 +1051,19 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
         </div>
       )}
 
-      {/* 5. COLLEGEBOARD DIGITAL SAT QUESTION MENU & BOTTOM NAVBAR */}
-      <div className="bg-[#0F172A] text-white px-6 py-4 rounded-lg shadow-md border border-slate-700 flex flex-wrap items-center justify-between gap-4 mt-6 relative">
+      {/* 5. Question menu and navigation */}
+      <div className="bg-white text-slate-900 px-6 py-4 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-4 mt-6 relative">
         {/* Left: Applicant Name & Question Menu Toggle */}
         <div className="flex items-center space-x-4">
-          <div className="hidden sm:flex items-center space-x-2 border-r border-slate-700 pr-4">
-            <User className="w-4 h-4 text-indigo-400" />
-            <span className="text-xs font-bold text-slate-200">{applicantName || 'Applicant'}</span>
+          <div className="hidden sm:flex items-center space-x-2 border-r border-slate-300 pr-4">
+            <User className="w-4 h-4 text-brand-800" />
+            <span className="text-xs font-bold text-slate-800">{applicantName || 'Applicant'}</span>
           </div>
           <button
             onClick={() => setShowQuestionMenu(!showQuestionMenu)}
-            className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-2 rounded-md border border-slate-600 flex items-center space-x-2 text-xs shadow-sm transition-colors"
+            className="bg-white hover:bg-slate-50 text-slate-800 font-semibold px-4 py-2 rounded-md border border-slate-300 flex items-center space-x-2 text-xs shadow-sm transition-colors"
           >
-            <Grid className="w-3.5 h-3.5 text-indigo-400" />
+            <Grid className="w-3.5 h-3.5 text-brand-800" />
             <span>Question {currentQuestionIndex + 1} of {examQuestions.length}</span>
             {showQuestionMenu ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </button>
@@ -1083,7 +1080,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
               }
             }}
             disabled={currentQuestionIndex === 0 && !showSatReviewScreen}
-            className="px-4 py-2 rounded-md font-bold text-xs bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-40 transition-colors flex items-center space-x-1 border border-slate-700 shadow-sm"
+            className="px-4 py-2 rounded-md font-bold text-xs bg-slate-100 text-slate-800 hover:bg-slate-100 disabled:opacity-40 transition-colors flex items-center space-x-1 border border-slate-300 shadow-sm"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back</span>
@@ -1092,7 +1089,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           {!showSatReviewScreen && currentQuestionIndex < examQuestions.length - 1 ? (
             <button
               onClick={() => setCurrentQuestionIndex((prev) => Math.min(examQuestions.length - 1, prev + 1))}
-              className="px-5 py-2 rounded-md font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors flex items-center space-x-1"
+              className="px-5 py-2 rounded-md font-bold text-xs bg-brand-600 hover:bg-brand-500 text-white shadow-sm transition-colors flex items-center space-x-1"
             >
               <span>Next</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -1100,7 +1097,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           ) : !showSatReviewScreen ? (
             <button
               onClick={() => setShowSatReviewScreen(true)}
-              className="px-5 py-2 rounded-md font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors flex items-center space-x-1.5"
+              className="px-5 py-2 rounded-md font-bold text-xs bg-brand-600 hover:bg-brand-500 text-white shadow-sm transition-colors flex items-center space-x-1.5"
             >
               <List className="w-3.5 h-3.5" />
               <span>Check Your Work</span>
@@ -1109,7 +1106,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
             <button
               onClick={() => handleSubmitAssessment()}
               disabled={isGrading}
-              className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-1.5"
+              className="px-6 py-2 rounded-md font-bold text-xs bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white shadow-sm transition-colors flex items-center space-x-1.5"
             >
               {isGrading ? (
                 <>
@@ -1126,35 +1123,35 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
           )}
         </div>
 
-        {/* INTERACTIVE SAT QUESTION MATRIX POPOVER / BOTTOM SHEET */}
+        {/* Question overview popover */}
         {showQuestionMenu && (
-          <div className="absolute bottom-full left-0 right-0 mb-3 bg-slate-900 border border-slate-700 p-6 rounded-lg shadow-2xl animate-fade-in z-50 text-white">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+          <div className="absolute bottom-full left-0 right-0 mb-3 bg-white border border-slate-300 p-6 rounded-lg shadow-md fade-in z-50 text-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
               <div className="flex items-center space-x-2">
-                <Grid className="w-4 h-4 text-indigo-400" />
-                <h3 className="font-bold text-sm text-slate-100 uppercase tracking-wider">Section 1: Question Menu & Navigation</h3>
+                <Grid className="w-4 h-4 text-brand-800" />
+                <h3 className="font-bold text-sm text-slate-900 uppercase tracking-wider">Section 1: Question Menu & Navigation</h3>
               </div>
               <button
                 onClick={() => setShowQuestionMenu(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-600 hover:text-slate-900"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Legend */}
-            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-300 pb-4 mb-4 border-b border-slate-800 font-medium">
+            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-700 pb-4 mb-4 border-b border-slate-200 font-medium">
               <span className="flex items-center gap-1.5">
-                <div className="w-3.5 h-3.5 bg-indigo-600 rounded-sm" /> Answered
+                <div className="w-3.5 h-3.5 bg-brand-600 rounded-sm" /> Answered
               </span>
               <span className="flex items-center gap-1.5">
                 <div className="w-3.5 h-3.5 border-2 border-slate-500 rounded-sm" /> Unanswered
               </span>
               <span className="flex items-center gap-1.5">
-                <Flag className="w-3.5 h-3.5 text-amber-500 fill-current" /> Marked for Review
+                <Flag className="w-3.5 h-3.5 text-amber-700 fill-current" /> Marked for Review
               </span>
               <span className="flex items-center gap-1.5">
-                <div className="w-3.5 h-3.5 border-2 border-blue-400 ring-2 ring-blue-300/40 rounded-sm" /> Current
+                <div className="w-3.5 h-3.5 border-2 border-brand-400 ring-2 ring-brand-200 rounded-sm" /> Current
               </span>
             </div>
 
@@ -1175,15 +1172,15 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                     }}
                     className={`h-11 rounded-md font-bold text-xs flex items-center justify-center relative transition-all border ${
                       isCurrent
-                        ? 'border-blue-400 ring-2 ring-blue-400/50 bg-blue-900/60 text-white shadow-md scale-105'
+                        ? 'border-brand-400 ring-2 ring-brand-200 bg-brand-50 text-slate-900 shadow-md scale-105'
                         : answered
-                        ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-500'
-                        : 'bg-slate-800 text-slate-300 border-slate-600 hover:border-slate-500 hover:text-white'
+                        ? 'bg-brand-600 text-white border-brand-500 hover:bg-brand-500'
+                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:border-slate-500 hover:text-white'
                     }`}
                   >
                     <span>{idx + 1}</span>
                     {flagged && (
-                      <span className="absolute -top-1 -right-1 bg-amber-500 text-white rounded-full p-0.5 shadow-sm" title="Marked for Review">
+                      <span className="absolute -top-1 -right-1 bg-amber-500 text-slate-900 rounded-full p-0.5 shadow-sm" title="Marked for Review">
                         <Flag className="w-2.5 h-2.5 fill-current" />
                       </span>
                     )}
@@ -1198,7 +1195,7 @@ export const ExamSession: React.FC<ExamSessionProps> = ({ attempt, onSubmitted, 
                   setShowQuestionMenu(false);
                   setShowSatReviewScreen(true);
                 }}
-                className="bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold px-4 py-2 rounded border border-slate-700 text-xs flex items-center space-x-1.5"
+                className="bg-slate-100 hover:bg-slate-100 text-brand-700 font-bold px-4 py-2 rounded border border-slate-300 text-xs flex items-center space-x-1.5"
               >
                 <List className="w-3.5 h-3.5" />
                 <span>Go to Section Summary (Check Your Work) →</span>

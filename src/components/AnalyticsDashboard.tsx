@@ -76,12 +76,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       {/* Header */}
       <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold shadow-sm">
+          <div className="w-10 h-10 rounded-md bg-brand-100 text-brand-600 flex items-center justify-center font-bold shadow-sm">
             <BarChart3 className="w-6 h-6" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-900">Professor Screening Analytics & Insights</h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-600">
               Aggregated metrics, topic difficulties, and time expenditure across your screening assessments
             </p>
           </div>
@@ -95,8 +95,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {total === 0 ? (
-        <div className="bg-white p-12 rounded-lg border border-slate-200 shadow-sm text-center text-slate-500">
-          <BarChart3 className="w-10 h-10 mx-auto text-slate-300 mb-3" />
+        <div className="bg-white p-12 rounded-lg border border-slate-200 shadow-sm text-center text-slate-600">
+          <BarChart3 className="w-10 h-10 mx-auto text-slate-700 mb-3" />
           <h3 className="font-bold text-slate-700">No submissions yet</h3>
           <p className="text-xs mt-1">Analytics will appear once students complete one of your assessments.</p>
         </div>
@@ -108,7 +108,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Average Topic Proficiency</h3>
-                <p className="text-xs text-slate-500">Identifies research disciplines where applicant cohort excels or struggles</p>
+                <p className="text-xs text-slate-600">Identifies research disciplines where applicant cohort excels or struggles</p>
               </div>
 
               <div className="h-80 w-full">
@@ -121,11 +121,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       <Radar
                         name="Avg Applicant Score (%)"
                         dataKey="score"
-                        stroke="#6366f1"
-                        fill="#6366f1"
+                        stroke="#28656b"
+                        fill="#28656b"
                         fillOpacity={0.35}
                       />
-                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#ffffff', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
                     </RadarChart>
                   ) : (
                     // A radar needs at least three axes; fall back to bars for one or two topics
@@ -133,8 +133,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="subject" axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 11 }} />
                       <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 11 }} />
-                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px' }} />
-                      <Bar dataKey="score" name="Avg Applicant Score (%)" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={45} />
+                      <Tooltip contentStyle={{ backgroundColor: '#ffffff', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                      <Bar dataKey="score" name="Avg Applicant Score (%)" fill="#28656b" radius={[6, 6, 0, 0]} barSize={45} />
                     </BarChart>
                   )}
                 </ResponsiveContainer>
@@ -145,12 +145,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Average Time Spent per Screening Question</h3>
-                <p className="text-xs text-slate-500">Identifies time-consuming bottlenecks and programming challenge duration</p>
+                <p className="text-xs text-slate-600">Identifies time-consuming bottlenecks and programming challenge duration</p>
               </div>
 
               <div className="h-80 w-full">
                 {timePerQuestionData.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs text-slate-500">No per-question timing recorded yet.</div>
+                  <div className="h-full flex items-center justify-center text-xs text-slate-600">No per-question timing recorded yet.</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart layout="vertical" data={timePerQuestionData} margin={{ top: 10, right: 30, left: 40, bottom: 0 }}>
@@ -159,11 +159,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       <YAxis type="category" dataKey="question" axisLine={false} tickLine={false} tick={{ fill: '#334155', fontSize: 11 }} width={160} />
                       <Tooltip
                         formatter={(value: any) => [`${value} minutes`, 'Avg Duration']}
-                        contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', border: 'none', fontSize: '12px' }}
+                        contentStyle={{ backgroundColor: '#ffffff', color: '#0f172a', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
                       />
-                      <Bar dataKey="avgMinutes" fill="#3B82F6" radius={[0, 6, 6, 0]} barSize={24}>
+                      <Bar dataKey="avgMinutes" fill="#4f989e" radius={[0, 6, 6, 0]} barSize={24}>
                         {timePerQuestionData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.avgMinutes > slowThreshold * 1.5 ? '#8B5CF6' : '#3B82F6'} />
+                          <Cell key={`cell-${index}`} fill={entry.avgMinutes > slowThreshold * 1.5 ? '#b45309' : '#4f989e'} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -176,26 +176,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           {/* Summary Stats Row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold shrink-0 shadow-sm">
+              <div className="w-12 h-12 rounded-md bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0 shadow-sm">
                 <Award className="w-6 h-6" />
               </div>
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Interview Invitation Rate</span>
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Interview Invitation Rate</span>
                 <span className="text-2xl font-bold text-slate-900 block mt-0.5">{pct(interviewCount)}</span>
-                <span className="text-[11px] text-emerald-600 font-medium">
+                <span className="text-xs text-emerald-700 font-medium">
                   {interviewCount} of {total} invited • {recommendedCount} AI-recommended
                 </span>
               </div>
             </div>
 
             <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center font-bold shrink-0 shadow-sm">
+              <div className="w-12 h-12 rounded-md bg-brand-100 text-brand-600 flex items-center justify-center font-bold shrink-0 shadow-sm">
                 <Clock className="w-6 h-6" />
               </div>
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Exam Completion Time</span>
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Avg Exam Completion Time</span>
                 <span className="text-2xl font-bold text-slate-900 block mt-0.5">{avgMinutes} min</span>
-                <span className="text-[11px] text-slate-500">Across {total} submission{total === 1 ? '' : 's'}</span>
+                <span className="text-xs text-slate-600">Across {total} submission{total === 1 ? '' : 's'}</span>
               </div>
             </div>
 
@@ -204,11 +204,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 <ShieldAlert className="w-6 h-6" />
               </div>
               <div>
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Integrity Cheating Flags</span>
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Integrity flags</span>
                 <span className="text-2xl font-bold text-red-600 block mt-0.5">
                   {flaggedCount} candidate{flaggedCount === 1 ? '' : 's'}
                 </span>
-                <span className="text-[11px] text-red-600 font-medium">{pct(flaggedCount)} flagged for AI/tab switching</span>
+                <span className="text-xs text-red-600 font-medium">{pct(flaggedCount)} flagged for AI/tab switching</span>
               </div>
             </div>
           </div>

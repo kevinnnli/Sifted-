@@ -70,8 +70,11 @@ function migrate(raw: any): DatabaseShape {
 }
 
 /**
- * All data lives in memory and is written to a JSON file after every change. Requests are handled
- * on a single thread and every mutation is synchronous, so there are no interleaved writes.
+ * All data lives in memory. Mutations are synchronous (single thread, no interleaving) and call
+ * save(), which only marks the data as changed. flush() then writes it out: to the JSON file as a
+ * group commit (one write at a time, each covering every change made before it started), or to
+ * the remote store. Requests that changed something wait for their flush before they get a
+ * response (see persistBeforeResponding), so an acknowledged change is always on disk.
  * Pass `file: null` for a purely in-memory database (tests).
  *
  * With a remote store (serverless hosting, see Database.connect) changes are instead collected and
@@ -84,6 +87,11 @@ export class Database {
   private revision = 0;
   private dirty = false;
   private writing: Promise<void> = Promise.resolve();
+  // File group commit: the write in progress, and the one queued behind it
+  private fileWrite: Promise<void> | null = null;
+  private queuedFileWrite: Promise<void> | null = null;
+  /** Increases on every save(), so callers can tell whether anything changed during a request. */
+  generation = 0;
   /** Increases whenever unsaved changes are thrown away after a conflict (see flush). */
   epoch = 0;
 
@@ -104,7 +112,55 @@ export class Database {
     this.data = data;
     this.isNew = isNew;
     // Persist immediately so a migrated file is upgraded on disk
-    this.save();
+    if (this.file) this.writeFileNow(JSON.stringify(this.data));
+  }
+
+  /** True when changes are written to a local file (as opposed to memory only or a remote store). */
+  get writesToFile() {
+    return Boolean(this.file) && !this.store;
+  }
+
+  // Write to a temporary file and rename it over the real one, so a crash mid-write can't corrupt the data
+  private tempPath() {
+    return path.join(path.dirname(this.file!), `.${path.basename(this.file!)}.${process.pid}.tmp`);
+  }
+
+  private writeFileNow(json: string) {
+    const tmp = this.tempPath();
+    fs.writeFileSync(tmp, json, { encoding: 'utf-8', mode: 0o600 });
+    fs.renameSync(tmp, this.file!);
+  }
+
+  private async writeFile(json: string) {
+    const tmp = this.tempPath();
+    await fs.promises.writeFile(tmp, json, { encoding: 'utf-8', mode: 0o600 });
+    await fs.promises.rename(tmp, this.file!);
+  }
+
+  private flushFile(): Promise<void> {
+    if (this.fileWrite) {
+      if (!this.dirty) return this.fileWrite; // everything changed so far is in the write in progress
+      // Newer changes: one more write after the current one covers all of them
+      this.queuedFileWrite ??= this.fileWrite
+        .catch(() => {})
+        .then(() => {
+          this.queuedFileWrite = null;
+          return this.flushFile();
+        });
+      return this.queuedFileWrite;
+    }
+    if (!this.dirty) return Promise.resolve();
+    this.dirty = false;
+    const json = JSON.stringify(this.data);
+    this.fileWrite = this.writeFile(json)
+      .catch((e) => {
+        this.dirty = true;
+        throw e;
+      })
+      .finally(() => {
+        this.fileWrite = null;
+      });
+    return this.fileWrite;
   }
 
   private load(): { data: DatabaseShape; isNew: boolean } {
@@ -125,19 +181,13 @@ export class Database {
   }
 
   save() {
-    if (this.store) {
-      this.dirty = true;
-      return;
-    }
-    if (!this.file) return;
-    // Write to a temporary file and rename it over the real one, so a crash mid-write can't corrupt the data
-    const tmp = path.join(path.dirname(this.file), `.${path.basename(this.file)}.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    fs.renameSync(tmp, this.file);
+    this.generation++;
+    if (this.store || this.file) this.dirty = true;
   }
 
-  /** Writes pending changes to the remote store; writes run one at a time, newest data wins. */
+  /** Writes pending changes to the file or remote store (see the class comment). */
   flush(): Promise<void> {
+    if (this.writesToFile) return this.flushFile();
     const store = this.store;
     if (!store) return Promise.resolve();
     const run = this.writing.then(async () => {

@@ -61,13 +61,13 @@ const get = <T>(url: string) => request<T>('GET', url);
 const post = <T>(url: string, body: unknown = {}) => request<T>('POST', url, body);
 const put = <T>(url: string, body: unknown = {}) => request<T>('PUT', url, body);
 const patch = <T>(url: string, body: unknown = {}) => request<T>('PATCH', url, body);
-const del = <T>(url: string) => request<T>('DELETE', url);
+const del = <T>(url: string, body?: unknown) => request<T>('DELETE', url, body);
 const id = encodeURIComponent;
 
 export interface SignupInput {
   name: string;
   email: string;
-  secondaryEmail: string;
+  secondaryEmail?: string;
   university: string;
   degreeProgram: string;
   password: string;
@@ -88,7 +88,7 @@ export type AssessmentInput = Pick<
 > & { isPublished: boolean };
 
 export const api = {
-  health: () => get<{ status: string; aiConfigured: boolean }>('/api/health'),
+  health: () => get<{ status: string; aiConfigured: boolean; site?: { operator: string | null; contactEmail: string | null } }>('/api/health'),
 
   auth: {
     me: () => get<{ user: UserAccount | null; testSession?: boolean }>('/api/auth/me'),
@@ -123,7 +123,7 @@ export const api = {
 
   student: {
     portal: () => get<StudentPortalData>('/api/student/portal'),
-    updateProfile: (profile: { secondaryEmail: string; university: string; degreeProgram: string }) =>
+    updateProfile: (profile: { secondaryEmail?: string; university: string; degreeProgram: string }) =>
       put<{ profile: UserAccount }>('/api/student/profile', profile),
     startAttempt: (invitationId: string, input: { lockdown: boolean; details?: Record<string, string> }) =>
       post<{ attempt: ExamAttemptView }>(`/api/student/invitations/${id(invitationId)}/attempt`, input),
@@ -134,6 +134,7 @@ export const api = {
     rsvp: (submissionId: string, response: 'Accepted' | 'Declined') =>
       post<{ submission: StudentSubmissionView }>(`/api/student/submissions/${id(submissionId)}/rsvp`, { response }),
     hideSubmission: (submissionId: string) => post<{ success: boolean }>(`/api/student/submissions/${id(submissionId)}/hide`),
+    deleteAccount: (password: string) => del<{ success: boolean }>('/api/student/account', { password }),
   },
 
   admin: {

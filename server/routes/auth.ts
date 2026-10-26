@@ -21,17 +21,20 @@ import {
   validatePasswordStrength,
   verifyPassword,
 } from '../security';
-import { asyncHandler, badRequest, conflict, HttpError, requireEmail, requireString } from '../validation';
+import { asyncHandler, badRequest, conflict, HttpError, optionalEmail, requireEmail, requireString } from '../validation';
+import { isSandboxEmail } from '../testAccounts';
 import { studentVerificationRequired } from '../views';
 
 const FREE_EMAIL_PROVIDERS = ['@gmail.com', '@yahoo.com', '@outlook.com', '@hotmail.com', '@aol.com', '@icloud.com', '@protonmail.com', '@mail.com'];
-const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80';
 
 export function authRoutes(db: Database) {
   const router = Router();
+  // Failed sign-ins: 5 per account per address, and a looser per-address cap. Whole classes often
+  // share one campus IP address, so the per-address limits leave room for a lecture hall.
   const loginLimiter = new AttemptLimiter(5, 15 * 60 * 1000); // per IP + email
-  const ipLimiter = new AttemptLimiter(30, 15 * 60 * 1000); // per IP
-  const registerLimiter = new AttemptLimiter(10, 60 * 60 * 1000);
+  const ipLimiter = new AttemptLimiter(100, 15 * 60 * 1000); // per IP
+  const registerLimiter = new AttemptLimiter(60, 60 * 60 * 1000); // per IP
+  const passwordLimiter = new AttemptLimiter(5, 15 * 60 * 1000); // wrong current password, per account
 
   const professorFor = (user: StoredUser) =>
     user.role === 'professor' ? db.data.professors.find((p) => p.id === user.professorId) : undefined;
@@ -107,10 +110,12 @@ export function authRoutes(db: Database) {
       const body = req.body || {};
       const name = requireString(body.name, 'Full name', { max: 100 });
       const email = requireEmail(body.email, 'University email');
-      const secondaryEmail = requireEmail(body.secondaryEmail, 'Personal email');
+      // Optional: only shown to the professors a student takes tests for, as an alternative contact
+      const secondaryEmail = optionalEmail(body.secondaryEmail, 'Personal email');
       const university = requireString(body.university, 'University', { max: 200 });
       const degreeProgram = requireString(body.degreeProgram, 'Degree program', { max: 200 });
-      const password = validatePasswordStrength(body.password);
+      const password = validatePasswordStrength(body.password, { email });
+      if (isSandboxEmail(email)) throw badRequest('This email domain is reserved for test accounts');
       if (email === secondaryEmail) throw badRequest('University email and personal email must be different addresses');
       if (FREE_EMAIL_PROVIDERS.some((p) => email.endsWith(p))) {
         throw badRequest('Your primary email must be an institutional or academic address (e.g. ending in .edu), not a free webmail address');
@@ -126,7 +131,6 @@ export function authRoutes(db: Database) {
         university,
         degreeProgram,
         role: 'applicant',
-        avatar: DEFAULT_AVATAR,
         isVerified: !studentVerificationRequired(),
         passwordHash: await hashPassword(password),
         createdAt: new Date().toISOString(),
@@ -136,6 +140,8 @@ export function authRoutes(db: Database) {
       if (db.findUserByEmail(email)) throw conflict('An account with this email already exists. Please sign in instead.');
       db.data.users.push(user);
       db.save();
+      // A fresh session for the new account (no session fixation via an earlier cookie)
+      destroySession(db, readSessionToken(req));
       dropParkedAdmin(req, res);
       const token = createSession(db, user.id);
       setSessionCookie(req, res, token);
@@ -159,8 +165,13 @@ export function authRoutes(db: Database) {
         throw badRequest('This administrator password is set by ADMIN_PASSWORD in the server configuration');
       }
       const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
-      const newPassword = validatePasswordStrength(req.body?.newPassword);
-      if (!(await verifyPassword(currentPassword, user.passwordHash))) throw new HttpError(400, 'Current password is incorrect');
+      const newPassword = validatePasswordStrength(req.body?.newPassword, { email: user.email });
+      passwordLimiter.check(user.id);
+      if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+        passwordLimiter.record(user.id);
+        throw new HttpError(400, 'Current password is incorrect');
+      }
+      passwordLimiter.reset(user.id);
       if (currentPassword === newPassword) throw badRequest('Choose a password different from your current one');
       user.passwordHash = await hashPassword(newPassword);
       user.mustChangePassword = false;

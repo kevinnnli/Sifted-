@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { notify } from '../notify';
 import { 
   FileText, 
   Plus, 
@@ -17,6 +18,7 @@ import {
   Eye,
   AlertCircle,
   Send,
+  X,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { Assessment, Question, QuestionType, DifficultyLevel, ProfessorProfile, IntegrityOptions } from '../types';
@@ -133,12 +135,12 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   // Saves the assessment and returns its id, or null if it isn't valid yet or saving failed
   const handleSave = async (): Promise<string | null> => {
     if (!title.trim()) {
-      alert('Please give the assessment a title (Step 1).');
+      notify('Please give the assessment a title (step 1).', 'error');
       setCurrentStep(1);
       return null;
     }
     if (currentQuestions.length === 0) {
-      alert('Add at least one question before saving the assessment (Step 2).');
+      notify('Add at least one question before saving the assessment (step 2).', 'error');
       setCurrentStep(2);
       return null;
     }
@@ -166,7 +168,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     setSaving(false);
     if (!saved) return null;
     setActiveAssessmentId(saved.id);
-    alert(`Assessment "${saved.title}" saved successfully!`);
+    notify(`Assessment "${saved.title}" saved.`);
     return saved.id;
   };
 
@@ -200,7 +202,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setAiGeneratedResult({ id: '', ...data.question } as Question);
       setAiIsFallback(Boolean(data.isFallback));
     } catch (error) {
-      alert(`Failed to generate a question: ${errorMessage(error)}`);
+      notify(`Could not generate a question: ${errorMessage(error)}`, 'error');
     } finally {
       setAiGenerating(false);
     }
@@ -222,20 +224,20 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       {/* Top Controls & Switcher */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold shadow-sm">
+          <div className="w-10 h-10 rounded-md bg-brand-100 text-brand-600 flex items-center justify-center font-bold shadow-sm">
             <FileText className="w-6 h-6" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-900">Assessment Builder & Configuration</h2>
-            <p className="text-xs text-slate-500">Design customized screening tests for your graduate research group</p>
+            <p className="text-xs text-slate-600">Design customized screening tests for your graduate research group</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <select
+          <select aria-label="Assessment to edit"
             value={activeAssessmentId}
             onChange={(e) => handleSelectAssessment(e.target.value)}
-            className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             {profAssessments.map((a) => (
               <option key={a.id} value={a.id}>
@@ -256,7 +258,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <button
             onClick={() => handleSave()}
             disabled={saving}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-1.5"
+            className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
           >
             <Check className="w-4 h-4" />
             <span>Save Assessment</span>
@@ -265,7 +267,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           {onOpenAssignModal && (
             <button
               onClick={() => (activeAssessmentId === 'new' ? handleSaveAndAssign() : onOpenAssignModal(activeAssessmentId))}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
             >
               <Send className="w-4 h-4" />
               <span>Assign to Candidates</span>
@@ -292,7 +294,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               onClick={() => setCurrentStep(s.step)}
               className={`flex items-center space-x-2 px-3.5 py-2 rounded-md text-xs font-bold transition-all ${
                 isActive
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                  ? 'bg-brand-600 text-white shadow-sm'
                   : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
               }`}
             >
@@ -309,50 +311,50 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900">Step 1: Assessment Details & Scope</h3>
-              <p className="text-xs text-slate-500">Define general metadata and applicant instructions</p>
+              <p className="text-xs text-slate-600">Define general metadata and applicant instructions</p>
             </div>
-            <span className="text-xs font-bold px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">Step 1 of 6</span>
+            <span className="text-xs font-bold px-2.5 py-1 rounded bg-brand-50 text-brand-700 border border-brand-100">Step 1 of 6</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-1.5 md:col-span-2">
               <label className="text-xs font-semibold text-slate-700">Assessment Title</label>
-              <input
+              <input aria-label="Assessment Title"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="e.g. Fall 2026 PhD AI Research Fellowship Screening"
               />
             </div>
 
             <div className="space-y-1.5 md:col-span-2">
               <label className="text-xs font-semibold text-slate-700">Description & Applicant Instructions</label>
-              <textarea
+              <textarea aria-label="Description & Applicant Instructions"
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700">Research Group / Lab</label>
-              <input
+              <input aria-label="Research Group / Lab"
                 type="text"
                 value={researchGroup}
                 onChange={(e) => setResearchGroup(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700">Semester / Admissions Cycle</label>
-              <input
+              <input aria-label="Semester / Admissions Cycle"
                 type="text"
                 value={semester}
                 onChange={(e) => setSemester(e.target.value)}
-                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
           </div>
@@ -360,7 +362,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="pt-4 border-t border-slate-100 flex justify-end">
             <button
               onClick={() => setCurrentStep(2)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
+              className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
             >
               Next: Add Questions →
             </button>
@@ -374,7 +376,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Step 2: Screening Question Pool</h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-600">
                 {currentQuestions.length} questions included ({totalPoints} total points). Supported: MC, Short Answer, Essay, Math (LaTeX), Code, Research.
               </p>
             </div>
@@ -384,14 +386,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 onClick={() => setShowQuestionBankModal(true)}
                 className="bg-slate-100 hover:bg-slate-200 text-slate-800 px-3.5 py-2 rounded-md text-xs font-medium border border-slate-300 transition-colors flex items-center space-x-1.5 shadow-sm"
               >
-                <Database className="w-3.5 h-3.5 text-indigo-600" />
+                <Database className="w-3.5 h-3.5 text-brand-600" />
                 <span>Add from Bank</span>
               </button>
               <button
                 onClick={() => setShowAIGeneratorModal(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-1.5"
+                className="bg-brand-600 hover:bg-brand-700 text-white px-3.5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
               >
-                <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                <Sparkles className="w-3.5 h-3.5 text-brand-800" />
                 <span>AI Generate Question</span>
               </button>
             </div>
@@ -399,8 +401,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
           <div className="space-y-3">
             {currentQuestions.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-slate-300 rounded-lg bg-slate-50 text-slate-500 shadow-sm">
-                <FileText className="w-8 h-8 mx-auto text-slate-400 mb-2" />
+              <div className="text-center py-12 border border-dashed border-slate-300 rounded-lg bg-slate-50 text-slate-600 shadow-sm">
+                <FileText className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                 <p className="text-sm font-medium">No questions currently in this assessment.</p>
                 <p className="text-xs mt-1">Click "Add from Bank" or "AI Generate Question" above to begin.</p>
               </div>
@@ -408,22 +410,22 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               currentQuestions.map((q, idx) => (
                 <div
                   key={q.id}
-                  className="p-4 rounded-md border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-indigo-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm"
+                  className="p-4 rounded-md border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-brand-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm"
                 >
                   <div className="flex items-start space-x-3">
-                    <div className="w-7 h-7 rounded-md bg-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                    <div className="w-7 h-7 rounded-md bg-brand-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
                       {idx + 1}
                     </div>
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-sm text-slate-900">{q.title}</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase tracking-wider">
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-brand-100 text-brand-800 uppercase tracking-wider">
                           {q.type}
                         </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
                           {q.difficulty}
                         </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
                           {q.points} pts
                         </span>
                       </div>
@@ -435,7 +437,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                     <button
                       onClick={() => moveQuestion(idx, -1)}
                       disabled={idx === 0}
-                      className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 disabled:opacity-30"
+                      className="p-1.5 rounded-md text-slate-600 hover:text-slate-700 hover:bg-slate-200 disabled:opacity-30"
                       title="Move Up"
                     >
                       <ArrowUp className="w-4 h-4" />
@@ -443,14 +445,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                     <button
                       onClick={() => moveQuestion(idx, 1)}
                       disabled={idx === currentQuestions.length - 1}
-                      className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 disabled:opacity-30"
+                      className="p-1.5 rounded-md text-slate-600 hover:text-slate-700 hover:bg-slate-200 disabled:opacity-30"
                       title="Move Down"
                     >
                       <ArrowDown className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => setQuestionIds(questionIds.filter((id) => id !== q.id))}
-                      className="p-1.5 rounded-md text-red-400 hover:text-red-700 hover:bg-red-50"
+                      className="p-1.5 rounded-md text-red-800 hover:text-red-700 hover:bg-red-50"
                       title="Remove Question"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -470,7 +472,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             </button>
             <button
               onClick={() => setCurrentStep(3)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
+              className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
             >
               Next: Scoring & Time →
             </button>
@@ -483,7 +485,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
-              <Sliders className="w-5 h-5 text-indigo-600" />
+              <Sliders className="w-5 h-5 text-brand-600" />
               <h3 className="text-base font-bold text-slate-900">Scoring & Administration Parameters</h3>
             </div>
 
@@ -491,42 +493,42 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               <div className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-200 shadow-sm">
                 <div>
                   <span className="text-xs font-bold text-slate-800">Progressive Adaptive Difficulty</span>
-                  <span className="block text-[11px] text-slate-500">Auto-balance Basic → Research tiers</span>
+                  <span className="block text-xs text-slate-600">Auto-balance Basic → Research tiers</span>
                 </div>
                 <input
                   type="checkbox"
                   checked={isAdaptive}
                   onChange={(e) => setIsAdaptive(e.target.checked)}
-                  className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  className="w-5 h-5 rounded text-brand-600 focus:ring-brand-500 cursor-pointer"
                 />
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-200 shadow-sm">
                 <div>
                   <span className="text-xs font-bold text-slate-800">Applicant Score Visibility</span>
-                  <span className="block text-[11px] text-slate-500">Show score upon completion</span>
+                  <span className="block text-xs text-slate-600">Show score upon completion</span>
                 </div>
                 <input
                   type="checkbox"
                   checked={isScoreVisible}
                   onChange={(e) => setIsScoreVisible(e.target.checked)}
-                  className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  className="w-5 h-5 rounded text-brand-600 focus:ring-brand-500 cursor-pointer"
                 />
               </div>
 
               <div className="space-y-2 pt-2">
                 <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
                   <span>Time Limit (Minutes)</span>
-                  <span className="text-indigo-600 font-bold text-sm">{timeLimitMinutes} min</span>
+                  <span className="text-brand-600 font-bold text-sm">{timeLimitMinutes} min</span>
                 </label>
-                <input
+                <input aria-label="Time limit in minutes"
                   type="range"
                   min={15}
                   max={180}
                   step={15}
                   value={timeLimitMinutes}
                   onChange={(e) => setTimeLimitMinutes(Number(e.target.value))}
-                  className="w-full accent-indigo-600 cursor-pointer"
+                  className="w-full accent-brand-600 cursor-pointer"
                 />
               </div>
             </div>
@@ -534,11 +536,11 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
           <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
-              <ShieldCheck className="w-5 h-5 text-emerald-600" />
-              <h3 className="text-base font-bold text-slate-900">Anti-Cheating Integrity Suite</h3>
+              <ShieldCheck className="w-5 h-5 text-emerald-700" />
+              <h3 className="text-base font-semibold text-slate-900">Integrity settings</h3>
             </div>
 
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-600">
               Configure automated integrity monitors. Gemini analyzes written and coded answers for synthetic LLM generation signatures.
             </p>
 
@@ -547,7 +549,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 { key: 'fullScreenMode', label: 'Full-Screen Assessment Mode', desc: 'Enforce full screen before start' },
                 { key: 'tabSwitchDetection', label: 'Tab Switching & Focus Loss Log', desc: 'Log when applicant switches tabs' },
                 { key: 'copyPasteDetection', label: 'Bulk Copy/Paste Detection', desc: 'Flag abnormal clipboard inserts' },
-                { key: 'aiAnswerDetection', label: 'Gemini AI-Generated Answer Detector', desc: 'Analyze responses for LLM syntax' },
+                { key: 'aiAnswerDetection', label: 'Estimate AI-written answers', desc: 'When AI is configured, Gemini estimates how likely written answers are AI-generated. Advisory only, not evidence.' },
                 { key: 'randomizeQuestionOrder', label: 'Randomize Question Order', desc: 'Unique question sequence per candidate' },
                 { key: 'randomizeAnswerOrder', label: 'Randomize MC Answer Order', desc: 'Prevent option memorization' },
               ].map((item) => (
@@ -557,7 +559,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 >
                   <div className="pr-2">
                     <span className="text-xs font-bold text-slate-800 block">{item.label}</span>
-                    <span className="text-[10px] text-slate-500 block">{item.desc}</span>
+                    <span className="text-xs text-slate-600 block">{item.desc}</span>
                   </div>
                   <input
                     type="checkbox"
@@ -568,7 +570,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                         [item.key]: e.target.checked,
                       })
                     }
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                    className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 cursor-pointer shrink-0"
                   />
                 </label>
               ))}
@@ -584,7 +586,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             </button>
             <button
               onClick={() => setCurrentStep(4)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
+              className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
             >
               Next: Review Summary →
             </button>
@@ -598,23 +600,23 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900">Step 4: Review Assessment Summary</h3>
-              <p className="text-xs text-slate-500">Verify all configuration parameters before publishing</p>
+              <p className="text-xs text-slate-600">Verify all configuration parameters before publishing</p>
             </div>
             <span className="text-xs font-bold px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Step 4 of 6</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
             <div>
-              <span className="text-[11px] font-bold text-slate-500 uppercase block">Total Questions</span>
-              <span className="text-xl font-extrabold text-slate-900">{currentQuestions.length}</span>
+              <span className="text-xs font-bold text-slate-600 uppercase block">Total Questions</span>
+              <span className="text-xl font-semibold text-slate-900">{currentQuestions.length}</span>
             </div>
             <div>
-              <span className="text-[11px] font-bold text-slate-500 uppercase block">Total Points</span>
-              <span className="text-xl font-extrabold text-indigo-600">{totalPoints} pts</span>
+              <span className="text-xs font-bold text-slate-600 uppercase block">Total Points</span>
+              <span className="text-xl font-semibold text-brand-600">{totalPoints} pts</span>
             </div>
             <div>
-              <span className="text-[11px] font-bold text-slate-500 uppercase block">Time Limit</span>
-              <span className="text-xl font-extrabold text-slate-900">{timeLimitMinutes} minutes</span>
+              <span className="text-xs font-bold text-slate-600 uppercase block">Time Limit</span>
+              <span className="text-xl font-semibold text-slate-900">{timeLimitMinutes} minutes</span>
             </div>
           </div>
 
@@ -633,7 +635,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 <div key={q.id} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-slate-200">
                   <span className="font-bold text-slate-900">{i + 1}. {q.title}</span>
                   <div className="flex items-center space-x-2">
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-800 uppercase font-semibold">{q.type}</span>
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-brand-100 text-brand-800 uppercase font-semibold">{q.type}</span>
                     <span className="font-bold text-slate-600">{q.points} pts</span>
                   </div>
                 </div>
@@ -650,7 +652,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             </button>
             <button
               onClick={() => setCurrentStep(5)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
+              className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
             >
               Next: Publish Toggle →
             </button>
@@ -661,13 +663,13 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       {/* STEP 5: Publish/Unpublish Toggle */}
       {currentStep === 5 && (
         <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-6 text-center max-w-2xl mx-auto">
-          <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto shadow-sm">
+          <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center mx-auto shadow-sm">
             <Check className="w-6 h-6" />
           </div>
 
           <div>
             <h3 className="text-lg font-bold text-slate-900">Step 5: Assessment Publication Status</h3>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-600 mt-1">
               Toggle whether this screening exam is actively published and available for applicant assignments.
             </p>
           </div>
@@ -678,7 +680,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               : 'bg-amber-50 border-amber-500 text-amber-900'
           }`}>
             <span className="text-xs font-bold uppercase tracking-wider block mb-1">Current Status</span>
-            <span className="text-2xl font-extrabold block">
+            <span className="text-2xl font-semibold block">
               {isPublished ? 'PUBLISHED & ACTIVE' : 'DRAFT (UNPUBLISHED)'}
             </span>
             <p className="text-xs mt-2 opacity-80 max-w-md mx-auto">
@@ -694,7 +696,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               className={`px-6 py-2.5 rounded-md font-bold text-xs shadow-sm transition-all flex items-center space-x-2 ${
                 isPublished
                   ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-emerald-700 hover:bg-emerald-800 text-white'
               }`}
             >
               <span>{isPublished ? 'Switch to Draft (Unpublish)' : 'Publish Assessment Now'}</span>
@@ -710,7 +712,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             </button>
             <button
               onClick={() => setCurrentStep(6)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
+              className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-md text-xs font-bold shadow-sm transition-colors"
             >
               Next: Assign Applicants →
             </button>
@@ -721,13 +723,13 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       {/* STEP 6: Assign Applicants */}
       {currentStep === 6 && (
         <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm space-y-6 text-center max-w-2xl mx-auto">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+          <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto shadow-sm">
             <Send className="w-6 h-6" />
           </div>
 
           <div>
             <h3 className="text-lg font-bold text-slate-900">Step 6: Assign to Graduate Candidates</h3>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-600 mt-1">
               Send invitations directly to candidate email addresses to begin screening.
             </p>
           </div>
@@ -736,7 +738,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             <p>
               By clicking the button below, you can select candidates from your verified applicant pool or enter custom university email addresses to send secure test links.
             </p>
-            <p className="font-semibold text-indigo-700">
+            <p className="font-semibold text-brand-700">
               Note: Remember to click "Finish & Save Assessment" below to persist all your changes.
             </p>
           </div>
@@ -745,7 +747,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             {onOpenAssignModal && (
               <button
                 onClick={handleSaveAndAssign}
-                className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2"
+                className="w-full sm:w-auto bg-emerald-700 hover:bg-emerald-800 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2"
               >
                 <Send className="w-4 h-4" />
                 <span>Save & Open Assign Applicants Dialog</span>
@@ -754,7 +756,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
             <button
               onClick={() => handleSave()}
-              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm shadow-indigo-200 transition-colors flex items-center justify-center space-x-2"
+              className="w-full sm:w-auto bg-brand-600 hover:bg-brand-700 text-white px-6 py-3 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2"
             >
               <Check className="w-4 h-4" />
               <span>Finish & Save Assessment</span>
@@ -774,30 +776,31 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
       {/* QUESTION BANK MODAL */}
       {showQuestionBankModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
+        <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-md border border-slate-200">
             <div className="p-6 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Question Bank Pool</h3>
-                <p className="text-xs text-slate-500">Select questions to include in "{title}"</p>
+                <p className="text-xs text-slate-600">Select questions to include in "{title}"</p>
               </div>
               <button
                 onClick={() => setShowQuestionBankModal(false)}
-                className="text-slate-400 hover:text-slate-700 font-bold text-lg px-2"
+                className="rounded-md p-1 text-slate-600 hover:text-slate-700  px-2"
+                aria-label="Close"
               >
-                ✕
+                <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
 
             <div className="p-4 border-b border-slate-200 bg-white">
               <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
+                <Search className="w-4 h-4 text-slate-600 absolute left-3 top-2.5" />
+                <input aria-label="Search questions"
                   type="text"
                   placeholder="Search questions by keyword or topic..."
                   value={searchBankQuery}
                   onChange={(e) => setSearchBankQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
             </div>
@@ -813,23 +816,23 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                     <div
                       key={q.id}
                       className={`p-4 rounded-md border transition-all flex items-center justify-between shadow-sm ${
-                        isAlreadyAdded ? 'bg-indigo-50/50 border-indigo-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        isAlreadyAdded ? 'bg-brand-50/50 border-brand-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
                       }`}
                     >
                       <div className="space-y-1">
                         <div className="flex items-center space-x-2">
                           <span className="font-bold text-sm text-slate-900">{q.title}</span>
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                            className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1 ${
                               isPublic
-                                ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                                ? 'bg-brand-100 text-brand-800 border border-brand-200'
                                 : 'bg-amber-100 text-amber-900 border border-amber-200'
                             }`}
                           >
-                            {isPublic ? '🌐 Public' : '🔒 Private'}
+                            {isPublic ? 'Public' : 'Private'}
                           </span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">{q.type}</span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase tracking-wider">{q.difficulty}</span>
+                          <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">{q.type}</span>
+                          <span className="px-2 py-0.5 rounded text-xs font-bold bg-brand-100 text-brand-800 uppercase tracking-wider">{q.difficulty}</span>
                         </div>
                         <p className="text-xs text-slate-600 line-clamp-2 max-w-xl">{q.prompt}</p>
                       </div>
@@ -845,7 +848,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                         className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors shrink-0 ${
                           isAlreadyAdded
                             ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-200'
-                            : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm shadow-indigo-200'
+                            : 'bg-brand-600 text-white hover:bg-brand-700 shadow-sm'
                         }`}
                       >
                         {isAlreadyAdded ? 'Remove' : '+ Add Question'}
@@ -858,7 +861,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
               <button
                 onClick={() => setShowQuestionBankModal(false)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-md text-xs font-medium shadow-sm shadow-indigo-200"
+                className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-md text-xs font-medium shadow-sm"
               >
                 Done ({currentQuestions.length} questions selected)
               </button>
@@ -869,14 +872,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
       {/* AI QUESTION GENERATOR MODAL */}
       {showAIGeneratorModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-indigo-200">
-            <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex items-center justify-between">
+        <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-md border border-brand-200">
+            <div className="p-6 border-b border-slate-200 text-slate-900 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <Sparkles className="w-6 h-6 text-indigo-400 animate-spin" style={{ animationDuration: '6s' }} />
+                <Sparkles className="w-6 h-6 text-brand-800 animate-spin" style={{ animationDuration: '6s' }} />
                 <div>
-                  <h3 className="text-lg font-bold">Gemini AI Question Generator</h3>
-                  <p className="text-xs text-indigo-200">Synthesize university-grade screening questions with correct answers & rubrics</p>
+                  <h3 className="text-lg font-semibold">Generate a question with AI</h3>
+                  <p className="text-sm text-slate-600">Drafts a question with an answer and rubric for you to review and edit.</p>
                 </div>
               </div>
               <button
@@ -884,9 +887,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                   setShowAIGeneratorModal(false);
                   if (onCloseAIGenerator) onCloseAIGenerator();
                 }}
-                className="text-slate-400 hover:text-white font-bold text-lg px-2"
+                className="rounded-md p-1 text-slate-600 hover:text-slate-900  px-2"
+                aria-label="Close"
               >
-                ✕
+                <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
 
@@ -895,38 +899,38 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">Research Field / Department</label>
-                  <input
+                  <input aria-label="Research Field / Department"
                     type="text"
                     value={aiField}
                     onChange={(e) => setAiField(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">Course / Discipline</label>
-                  <input
+                  <input aria-label="Course / Discipline"
                     type="text"
                     value={aiCourse}
                     onChange={(e) => setAiCourse(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <label className="text-xs font-semibold text-slate-700">Specialization or Topic Focus</label>
-                  <input
+                  <input aria-label="Specialization or Topic Focus"
                     type="text"
                     value={aiSpecialization}
                     onChange={(e) => setAiSpecialization(e.target.value)}
                     placeholder="e.g. Transformers, Spectral Graph Theory, Bayesian Nonparametrics..."
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">Question Type</label>
-                  <select
+                  <select aria-label="Question Type"
                     value={aiQuestionType}
                     onChange={(e) => setAiQuestionType(e.target.value as QuestionType)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="multiple-choice">Multiple Choice</option>
                     <option value="short-answer">Short Answer</option>
@@ -938,35 +942,35 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">Desired Difficulty</label>
-                  <select
+                  <select aria-label="Desired Difficulty"
                     value={aiDifficulty}
                     onChange={(e) => setAiDifficulty(e.target.value as DifficultyLevel)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="Basic">Basic (Undergrad Fundamentals)</option>
                     <option value="Intermediate">Intermediate (MS Core)</option>
                     <option value="Advanced">Advanced (PhD Qualifying)</option>
-                    <option value="Research-Level">Research-Level (Doctoral Fellowship)</option>
+                    <option value="Research-Level">Research level</option>
                   </select>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <label className="text-xs font-semibold text-slate-700">Question Visibility</label>
-                  <select
+                  <select aria-label="Question Visibility"
                     value={aiIsPublic ? 'public' : 'private'}
                     onChange={(e) => setAiIsPublic(e.target.value === 'public')}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
-                    <option value="public">🌐 Public (Available to all professors in Question Bank)</option>
-                    <option value="private">🔒 Private (Only visible to you)</option>
+                    <option value="public">Public (Available to all professors in Question Bank)</option>
+                    <option value="private">Private (Only visible to you)</option>
                   </select>
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <label className="text-xs font-semibold text-slate-700">Specific Learning Objectives / Evaluative Goals</label>
-                  <textarea
+                  <textarea aria-label="Specific Learning Objectives / Evaluative Goals"
                     rows={2}
                     value={aiLearningObjectives}
                     onChange={(e) => setAiLearningObjectives(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
                     placeholder="e.g. Must evaluate asymptotic scaling limits and proposed hardware memory IO trade-offs."
                   />
                 </div>
@@ -976,37 +980,37 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 <button
                   onClick={handleGenerateAIQuestion}
                   disabled={aiGenerating}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-2 disabled:opacity-50"
+                  className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-2 disabled:opacity-50"
                 >
                   <Sparkles className={`w-4 h-4 ${aiGenerating ? 'animate-spin' : ''}`} />
-                  <span>{aiGenerating ? 'Synthesizing with Gemini AI...' : 'Generate Screening Question'}</span>
+                  <span>{aiGenerating ? 'Generating…' : 'Generate question'}</span>
                 </button>
               </div>
 
               {/* Generated Result Preview */}
               {aiGeneratedResult && aiIsFallback && (
                 <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start space-x-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                   <span>
-                    Gemini AI isn't available (no API key configured or the request failed), so this is a <strong>template question</strong>. Review and edit it in the Question Bank before using it.
+                    AI generation isn't available (no API key configured or the request failed), so this is a <strong>template question</strong>. Review and edit it in the Question Bank before using it.
                   </span>
                 </div>
               )}
               {aiGeneratedResult && (
-                <div className="p-5 rounded-lg bg-indigo-50/70 border border-indigo-200 space-y-4 animate-fade-in shadow-sm">
+                <div className="p-5 rounded-lg bg-brand-50/70 border border-brand-200 space-y-4 fade-in shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <span className="px-2 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider">
+                      <span className="px-2 py-0.5 rounded bg-brand-600 text-white text-xs font-bold uppercase tracking-wider">
                         AI Generated
                       </span>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                        className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1 ${
                           aiIsPublic
-                            ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                            ? 'bg-brand-100 text-brand-800 border border-brand-200'
                             : 'bg-amber-100 text-amber-900 border border-amber-200'
                         }`}
                       >
-                        {aiIsPublic ? '🌐 Public' : '🔒 Private'}
+                        {aiIsPublic ? 'Public' : 'Private'}
                       </span>
                       <h4 className="font-bold text-sm text-slate-900">{aiGeneratedResult.title}</h4>
                     </div>
@@ -1018,7 +1022,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                   <div className="space-y-2 text-xs">
                     <div>
                       <span className="font-semibold text-slate-700">Prompt / Problem Statement:</span>
-                      <p className="text-slate-800 bg-white p-3 rounded-md border border-indigo-100 mt-1 font-normal leading-relaxed shadow-sm">
+                      <p className="text-slate-800 bg-white p-3 rounded-md border border-brand-100 mt-1 font-normal leading-relaxed shadow-sm">
                         {aiGeneratedResult.prompt}
                       </p>
                     </div>
@@ -1026,10 +1030,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                     {aiGeneratedResult.options && (
                       <div>
                         <span className="font-semibold text-slate-700">Generated Options:</span>
-                        <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-700 bg-white p-3 rounded-md border border-indigo-100 shadow-sm">
+                        <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-700 bg-white p-3 rounded-md border border-brand-100 shadow-sm">
                           {aiGeneratedResult.options.map((opt, i) => (
                             <li key={i} className={aiGeneratedResult.correctAnswers?.includes(opt) ? 'font-bold text-emerald-700' : ''}>
-                              {opt} {aiGeneratedResult.correctAnswers?.includes(opt) ? '✓ (Correct)' : ''}
+                              {opt} {aiGeneratedResult.correctAnswers?.includes(opt) ? '(Correct)' : ''}
                             </li>
                           ))}
                         </ul>
@@ -1038,14 +1042,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
                     <div>
                       <span className="font-semibold text-slate-700">Professor Grading Rubric:</span>
-                      <p className="text-slate-700 bg-white/80 p-3 rounded-md border border-indigo-100 mt-1 italic shadow-sm">
+                      <p className="text-slate-700 bg-white/80 p-3 rounded-md border border-brand-100 mt-1 italic shadow-sm">
                         {aiGeneratedResult.rubric}
                       </p>
                     </div>
 
                     <div>
                       <span className="font-semibold text-slate-700">Model Solution / Sample Answer:</span>
-                      <p className="text-slate-800 bg-white p-3 rounded-md border border-indigo-100 mt-1 font-mono text-[11px] shadow-sm">
+                      <p className="text-slate-800 bg-white p-3 rounded-md border border-brand-100 mt-1 font-mono text-xs shadow-sm">
                         {aiGeneratedResult.sampleAnswer}
                       </p>
                     </div>
@@ -1054,7 +1058,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                   <div className="flex justify-end pt-2">
                     <button
                       onClick={handleAddGeneratedQuestion}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-1.5"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Insert into Assessment Pool</span>
@@ -1064,7 +1068,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center text-xs text-slate-500">
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center text-xs text-slate-600">
               <span>Powered by the Gemini API (server-side)</span>
               <button
                 onClick={() => {

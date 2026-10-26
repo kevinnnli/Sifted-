@@ -5,6 +5,7 @@ import { createApp } from './app';
 import { ensureEnvAdmin, isDemoMode, seedDemoData } from './bootstrap';
 import { Database } from './db';
 import { ensureTestAccounts } from './testAccounts';
+import { pruneExpiredSessions } from './security';
 import { sweepExpiredAttempts } from './services/attempts';
 import { redisStoreFromEnv, StorageConflictError, storageInfo } from './storage';
 
@@ -83,6 +84,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (Date.now() - lastSweep > SWEEP_INTERVAL_MS) {
       lastSweep = Date.now();
       await sweepExpiredAttempts(db);
+      pruneExpiredSessions(db);
     }
     await db.flush();
   } catch (e) {

@@ -4,6 +4,7 @@
 import { build } from 'esbuild';
 import fs from 'fs';
 import path from 'path';
+import { securityHeaderList } from '../server/securityHeaders.mjs';
 
 const root = process.cwd();
 const out = path.join(root, '.vercel', 'output');
@@ -45,13 +46,7 @@ fs.writeFileSync(
 );
 
 // Routing: security headers everywhere, /api/* to the function, files as-is, anything else to the app
-const headers = {
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin',
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  ...(process.env.ALLOW_EMBEDDING === 'true' ? {} : { 'X-Frame-Options': 'SAMEORIGIN' }),
-};
+const headers = securityHeaderList({ production: true, allowEmbedding: process.env.ALLOW_EMBEDDING === 'true' });
 fs.writeFileSync(
   path.join(out, 'config.json'),
   JSON.stringify(
@@ -59,9 +54,11 @@ fs.writeFileSync(
       version: 3,
       routes: [
         { src: '/(.*)', headers, continue: true },
+        // Hashed build files never change, so browsers may keep them; the page itself is always revalidated
+        { src: '^/assets/(.*)$', headers: { 'Cache-Control': 'public, max-age=31536000, immutable' }, continue: true },
         { src: '^/api(?:/(.*))?$', dest: '/api?__sifted_path=$1' },
         { handle: 'filesystem' },
-        { src: '/(.*)', dest: '/index.html' },
+        { src: '/(.*)', dest: '/index.html', headers: { 'Cache-Control': 'no-cache' } },
       ],
     },
     null,

@@ -36,7 +36,16 @@ Without step 1 the site still runs, but accounts and results disappear whenever 
 
 - New students must be verified by the administrator before they can see assigned tests (set `STUDENT_VERIFICATION=auto` to skip this).
 - Tests run on the server: it holds the clock, the question order and the answer keys, saves progress as the student goes, grades on submission, and auto-submits when time (plus grace) runs out. A refresh or a lost connection resumes the same attempt.
-- Sessions use HttpOnly cookies, passwords are hashed with scrypt, sign-in is rate-limited, and every API route checks the caller's role and ownership.
+- Sessions use secure, HTTP-only cookies. They end after 7 days without activity and at most 30 days after sign-in; using the site extends them. Passwords are hashed with scrypt, sign-in is rate-limited, and every API route checks the caller's role and ownership.
+- Students can delete their account and all of their submissions from **My account**.
+
+See [`docs/privacy-and-security.md`](docs/privacy-and-security.md) for the security architecture, the personal-data inventory, measured performance and known limits.
+
+## Policies
+
+The Privacy Policy, Terms of Service, Cookie Policy, Data Deletion and Refund Policy pages (`/privacy`, `/terms`, `/cookies`, `/data-deletion`, `/refunds`) describe how this software actually handles data. They are drafts: each page marks the sections that need the operator's details or a lawyer's review. Set `SITE_OPERATOR` and `SITE_CONTACT_EMAIL` so the pages name who runs your deployment, and have the documents reviewed before using Sifted with real students.
+
+Sifted uses only strictly necessary cookies and browser storage, so the cookie notice informs rather than asks. If optional tools such as analytics are ever added, they must be registered in `src/consent.ts`, which keeps them off until a visitor opts in.
 
 ## Test accounts
 
@@ -61,6 +70,8 @@ All settings are documented in [`.env.example`](.env.example). The ones you are 
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | AI features |
 | `SEED_DEMO_DATA`, `DEMO_PASSWORD` | Sample data for a new database |
 | `DATABASE_FILE` | Where data is stored (default `./database.json`) |
+| `SITE_OPERATOR`, `SITE_CONTACT_EMAIL` | Who runs the deployment, shown in the policies |
+| `AI_TIMEOUT_MS` | Upper limit for one AI call (default 20000) |
 | `ALLOW_EMBEDDING=true`, `COOKIE_SAMESITE=none` | Only for iframe previews such as AI Studio (HTTPS required) |
 
 Serve the app over HTTPS in production (`npm run build && npm start`); session cookies are marked Secure when `NODE_ENV=production`.
@@ -75,5 +86,5 @@ Databases created by earlier versions had no passwords. On first start they are 
 - `npm run build` / `npm start`: production build and server
 - `npm run build:vercel`: the Vercel build (used automatically by `vercel.json`)
 - `npm run lint`: type-check
-- `npm test`: server security and isolation tests
+- `npm test`: server tests: authentication, account isolation, sessions, deletion, storage
 

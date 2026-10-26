@@ -51,6 +51,12 @@ export function requireEmail(value: unknown, field = 'Email'): string {
   return email;
 }
 
+/** An optional email: empty or missing means none. */
+export function optionalEmail(value: unknown, field = 'Email'): string | undefined {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) return undefined;
+  return requireEmail(value, field);
+}
+
 export function requireEnum<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
     throw badRequest(`${field} must be one of: ${allowed.join(', ')}`);

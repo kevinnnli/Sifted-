@@ -2,25 +2,41 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { api, setUnauthorizedHandler } from './api';
 import { UserAccount } from './types';
 import { LandingPage } from './components/LandingPage';
 import { ForcedPasswordChange } from './components/ChangePasswordForm';
-import { ProfessorWorkspace } from './components/ProfessorWorkspace';
-import { StudentPortal } from './components/student/StudentPortal';
-import { AdminPortal } from './components/AdminPortal';
+import { Notifications } from './components/ui/Notifications';
+import { CookieNotice } from './components/ui/CookieNotice';
+import { policyForPath, SiteInfo } from './components/legal/policies';
+
+// Each portal is loaded only for the people who use it, which keeps the first page light
+const AdminPortal = lazy(() => import('./components/AdminPortal').then((m) => ({ default: m.AdminPortal })));
+const ProfessorWorkspace = lazy(() => import('./components/ProfessorWorkspace').then((m) => ({ default: m.ProfessorWorkspace })));
+const StudentPortal = lazy(() => import('./components/student/StudentPortal').then((m) => ({ default: m.StudentPortal })));
+const PolicyPage = lazy(() => import('./components/legal/PolicyPage'));
+
+function Loading({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center text-sm font-medium text-slate-600" role="status">
+      {label}
+    </div>
+  );
+}
 
 /**
  * Authentication gate. Who someone is comes only from the server session; each account sees
- * exactly one portal, chosen by its role. There is no way to switch roles or accounts in the UI.
+ * exactly one portal, chosen by its role. Policy pages are public.
  */
 export default function App() {
   // undefined while the session is being checked; null when nobody is signed in
   const [user, setUser] = useState<UserAccount | null | undefined>(undefined);
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [site, setSite] = useState<SiteInfo>({ operator: null, contactEmail: null });
   // The administrator is inside a test account and can switch back
   const [testSession, setTestSession] = useState(false);
+  const policy = policyForPath(window.location.pathname);
 
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
@@ -33,7 +49,10 @@ export default function App() {
       .catch(() => setUser(null));
     api
       .health()
-      .then((res) => setAiConfigured(Boolean(res.aiConfigured)))
+      .then((res) => {
+        setAiConfigured(Boolean(res.aiConfigured));
+        if (res.site) setSite(res.site);
+      })
       .catch(() => setAiConfigured(false));
     return () => setUnauthorizedHandler(null);
   }, []);
@@ -68,65 +87,56 @@ export default function App() {
     setTestSession(false);
   };
 
-  if (user === undefined) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center text-sm font-semibold">
-        Loading Sifted…
-      </div>
-    );
-  }
-
-  if (!user) {
+  let page: React.ReactNode;
+  if (policy) {
+    page = <PolicyPage policy={policy} site={site} />;
+  } else if (user === undefined) {
+    page = <Loading />;
+  } else if (!user) {
     const params = new URLSearchParams(window.location.search);
-    return <LandingPage onAuthenticated={signedIn} initialTab={params.get('role') || params.get('exam') ? 'login' : 'overview'} />;
+    page = <LandingPage onAuthenticated={signedIn} initialTab={params.get('role') || params.get('exam') ? 'login' : 'overview'} />;
+  } else if (user.mustChangePassword) {
+    page = <ForcedPasswordChange user={user} onChanged={setUser} onSignOut={handleSignOut} />;
+  } else if (user.role === 'admin') {
+    page = <AdminPortal currentAccount={user} onSignOut={handleSignOut} onOpenTestAccount={openTestAccount} />;
+  } else if (user.role === 'professor') {
+    page = <ProfessorWorkspace user={user} aiConfigured={aiConfigured} onSignOut={handleSignOut} onUserUpdated={setUser} />;
+  } else if (user.role === 'applicant') {
+    page = <StudentPortal user={user} onSignOut={handleSignOut} onUserUpdated={setUser} />;
+  } else {
+    page = <LandingPage onAuthenticated={signedIn} />;
   }
 
-  const banner = testSession && user.role !== 'admin' && <TestSessionBanner user={user} onReturn={returnToAdmin} />;
-
-  if (user.mustChangePassword) {
-    return <ForcedPasswordChange user={user} onChanged={setUser} onSignOut={handleSignOut} />;
-  }
-
-  switch (user.role) {
-    case 'admin':
-      return <AdminPortal currentAccount={user} onSignOut={handleSignOut} onOpenTestAccount={openTestAccount} />;
-    case 'professor':
-      return (
-        <>
-          <ProfessorWorkspace user={user} aiConfigured={aiConfigured} onSignOut={handleSignOut} onUserUpdated={setUser} />
-          {banner}
-        </>
-      );
-    case 'applicant':
-      return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 relative">
-          <StudentPortal user={user} onSignOut={handleSignOut} onUserUpdated={setUser} />
-          {banner}
-        </div>
-      );
-    default:
-      return <LandingPage onAuthenticated={signedIn} />;
-  }
+  return (
+    <>
+      {!policy && testSession && user && user.role !== 'admin' && <TestSessionBar user={user} onReturn={returnToAdmin} />}
+      <Suspense fallback={<Loading />}>{page}</Suspense>
+      <Notifications />
+      <CookieNotice />
+    </>
+  );
 }
 
-/** Shown while the administrator is using a test account. */
-function TestSessionBanner({ user, onReturn }: { user: UserAccount; onReturn: () => void }) {
+/** Shown above everything while the administrator is using a test account. */
+function TestSessionBar({ user, onReturn }: { user: UserAccount; onReturn: () => void }) {
   const [busy, setBusy] = useState(false);
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] max-w-[calc(100%-2rem)] flex items-center gap-3 pl-4 pr-2 py-2 rounded-full bg-purple-700 text-white text-xs font-semibold shadow-2xl shadow-purple-900/50 border border-purple-400/40">
-      <span className="truncate">
-        Test account: <strong>{user.name}</strong>
-      </span>
-      <button
-        onClick={() => {
-          setBusy(true);
-          onReturn();
-        }}
-        disabled={busy}
-        className="shrink-0 px-3 py-1.5 rounded-full bg-white text-purple-800 font-bold hover:bg-purple-100 disabled:opacity-60"
-      >
-        {busy ? 'Switching…' : '← Back to admin'}
-      </button>
+    <div role="region" aria-label="Test account" className="border-b border-amber-300 bg-amber-50 text-sm text-amber-950">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-2 sm:px-6">
+        <span className="truncate">
+          Using test account <strong className="font-semibold">{user.name}</strong>
+        </span>
+        <button
+          onClick={() => {
+            setBusy(true);
+            onReturn();
+          }}
+          disabled={busy}
+          className="shrink-0 rounded-md bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-950 disabled:opacity-60"
+        >
+          {busy ? 'Switching…' : 'Back to admin'}
+        </button>
+      </div>
     </div>
   );
 }

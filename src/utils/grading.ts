@@ -150,7 +150,7 @@ export function evaluateQuestionResponse(
   // Evaluate real submissions based on question type
   let isCorrect = true;
   let rawScore = maxScore;
-  let feedback = 'Exemplary technical response demonstrating thorough understanding and rigorous derivation.';
+  let feedback = 'Matches the expected answer.';
   let confidence = 95;
 
   if (question.type === 'multiple-choice') {
@@ -308,19 +308,19 @@ export function calculateSubmissionGrading(
     recommendationExplanation += `Warning: ${emptyCount} question(s) were submitted empty or unmodified from boilerplate templates, receiving 0 points. `;
   }
   if (hireabilityLevel === 'Tier 1: Direct Admit / Top Fellow') {
-    recommendationExplanation += 'Exemplary technical depth and rigorous mathematical derivations. Highly recommended for immediate doctoral fellowship or research admission.';
+    recommendationExplanation += 'Strong results across the assessment. Worth considering for an interview.';
   } else if (hireabilityLevel === 'Tier 2: Strong Interview Contender') {
-    recommendationExplanation += 'Solid performance across advanced and intermediate problems. Recommended for faculty interview to evaluate specialized research fit.';
+    recommendationExplanation += 'Solid results on advanced and intermediate questions. An interview could explore research fit.';
   } else if (hireabilityLevel === 'Tier 3: Conditional / Needs Review') {
-    recommendationExplanation += 'Moderate technical execution with gaps in advanced algorithmic or theoretical sections. Faculty should review manual derivations before advancing.';
+    recommendationExplanation += 'Mixed results, with gaps on the harder questions. Review the written answers before deciding.';
   } else {
-    recommendationExplanation += 'Did not meet the graduate technical screening threshold due to low scores or missing/empty answers.';
+    recommendationExplanation += 'Below the screening threshold because of low scores or empty answers.';
   }
 
   const strongestTopic = Object.entries(topicTotals).sort((a, b) => b[1]!.percentage - a[1]!.percentage)[0]?.[0];
   const aiSummary = emptyCount > 0
-    ? `Flagged: ${emptyCount} empty or boilerplate answer(s). Weighted Score: ${overallScore}% (${hireabilityLevel}).`
-    : `Weighted Score: ${overallScore}% (${hireabilityLevel}).${strongestTopic ? ` Strongest in ${strongestTopic}.` : ''}`;
+    ? `${emptyCount} empty or unchanged answer(s). Weighted score ${overallScore}% (${getHireabilityShortText(hireabilityLevel)}).`
+    : `Weighted score ${overallScore}% (${getHireabilityShortText(hireabilityLevel)}).${strongestTopic ? ` Strongest topic: ${strongestTopic}.` : ''}`;
 
   return {
     evaluatedResponses,
@@ -423,24 +423,25 @@ export function getAiFlagThreshold(sensitivity?: 'high' | 'medium' | 'low'): num
 export function getHireabilityBadgeStyle(level?: string): string {
   if (!level) return 'bg-slate-100 text-slate-700 border-slate-300';
   if (level.includes('Tier 1')) {
-    return 'bg-purple-100 text-purple-800 border border-purple-300 font-bold shadow-xs';
+    return 'bg-brand-50 text-brand-900 border border-brand-200 font-semibold';
   }
   if (level.includes('Tier 2')) {
-    return 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold';
+    return 'bg-emerald-50 text-emerald-900 border border-emerald-200 font-semibold';
   }
   if (level.includes('Tier 3')) {
-    return 'bg-amber-100 text-amber-800 border border-amber-300 font-semibold';
+    return 'bg-amber-50 text-amber-900 border border-amber-200 font-semibold';
   }
-  return 'bg-rose-100 text-rose-800 border border-rose-300 font-bold';
+  return 'bg-slate-100 text-slate-700 border border-slate-300 font-semibold';
 }
 
 /**
  * Returns short badge text for the hireability level.
  */
 export function getHireabilityShortText(level?: string): string {
-  if (!level) return 'Review Pending';
-  if (level.includes('Tier 1')) return 'Tier 1: Direct Admit';
-  if (level.includes('Tier 2')) return 'Tier 2: Strong Interview';
-  if (level.includes('Tier 3')) return 'Tier 3: Conditional';
-  return 'Tier 4: Do Not Admit';
+  // Score bands describe the result only; admission decisions belong to the professor
+  if (!level) return 'Not yet scored';
+  if (level.includes('Tier 1')) return 'Band 1: top scores';
+  if (level.includes('Tier 2')) return 'Band 2: strong';
+  if (level.includes('Tier 3')) return 'Band 3: borderline';
+  return 'Band 4: below threshold';
 }

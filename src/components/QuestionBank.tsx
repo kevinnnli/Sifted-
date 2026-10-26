@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Database, Search, Plus, FileText, Globe, Lock, User, Sparkles, Trash2, Edit3 } from 'lucide-react';
+import { asButton } from './ui/a11y';
+import { notify } from '../notify';
+import { Database, Search, Plus, FileText, Globe, Lock, User, Sparkles, Trash2, Edit3, X } from 'lucide-react';
 import { Question, TopicCategory, DifficultyLevel, QuestionType, ProfessorProfile } from '../types';
 
 interface QuestionBankProps {
@@ -124,27 +126,27 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
   const handleCreateManualQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualTitle.trim() || !manualPrompt.trim()) {
-      alert('Please enter a title and prompt.');
+      notify('Please enter a title and prompt.', 'error');
       return;
     }
     const points = Math.round(Number(manualPoints));
     if (!Number.isFinite(points) || points < 1 || points > 100) {
-      alert('Points must be a whole number between 1 and 100.');
+      notify('Points must be a whole number between 1 and 100.', 'error');
       return;
     }
     const options = manualOptions.map((o) => o.trim());
     if (manualType === 'multiple-choice') {
       const filled = options.filter(Boolean);
       if (filled.length < 2) {
-        alert('A multiple-choice question needs at least two answer options.');
+        notify('A multiple-choice question needs at least two answer options.', 'error');
         return;
       }
       if (new Set(filled).size !== filled.length) {
-        alert('Answer options must all be different.');
+        notify('Answer options must all be different.', 'error');
         return;
       }
       if (!options[manualCorrectIndex]) {
-        alert('Please mark which (non-empty) option is the correct answer.');
+        notify('Please mark which option is the correct answer.', 'error');
         return;
       }
     }
@@ -174,10 +176,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
     const saved = await onAddQuestionToBank(newQ);
     if (!saved) return; // keep the form open so nothing typed is lost
     setShowManualModal(false);
-    alert(
+    notify(
       existing
         ? `Question "${saved.title}" updated.`
-        : `Question "${saved.title}" added to ${manualIsPublic ? 'Public Question Bank' : 'your Private Questions'}!`
+        : `Question "${saved.title}" added to ${manualIsPublic ? 'the shared question bank' : 'your private questions'}.`
     );
     resetManualForm();
   };
@@ -187,12 +189,12 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
       {/* Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold shadow-sm">
+          <div className="w-10 h-10 rounded-md bg-brand-100 text-brand-600 flex items-center justify-center font-bold shadow-sm">
             <Database className="w-6 h-6" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-900">Professor Screening Question Bank</h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-600">
               {publicQuestions.length} public screening problems shared across professors & your private pool
             </p>
           </div>
@@ -203,12 +205,12 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
             onClick={openCreateModal}
             className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 px-4 py-2.5 rounded-md text-xs font-semibold shadow-sm transition-colors flex items-center space-x-2"
           >
-            <Plus className="w-4 h-4 text-indigo-600" />
+            <Plus className="w-4 h-4 text-brand-600" />
             <span>Create Custom Question</span>
           </button>
           <button
             onClick={onOpenAIGenerator}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-md text-xs font-medium shadow-sm shadow-indigo-200 transition-colors flex items-center space-x-2"
+            className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2.5 rounded-md text-xs font-medium shadow-sm transition-colors flex items-center space-x-2"
           >
             <Sparkles className="w-4 h-4" />
             <span>AI Generate New Question</span>
@@ -221,7 +223,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
           <div>
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Question Visibility Pool:</span>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-xs text-slate-600">
               {poolView === 'public'
                 ? 'All public questions from any professor. You can pull any question from this pool into your assessments.'
                 : poolView === 'private'
@@ -234,7 +236,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
               onClick={() => setPoolView('public')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
                 poolView === 'public'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                  ? 'bg-brand-600 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -246,7 +248,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
               onClick={() => setPoolView('private')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
                 poolView === 'private'
-                  ? 'bg-amber-600 text-white shadow-sm shadow-amber-200'
+                  ? 'bg-amber-600 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -258,7 +260,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
               onClick={() => setPoolView('my-all')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
                 poolView === 'my-all'
-                  ? 'bg-slate-800 text-white shadow-sm'
+                  ? 'bg-brand-700 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -272,21 +274,21 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
         <div className="space-y-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
+              <Search className="w-4 h-4 text-slate-600 absolute left-3.5 top-3" />
+              <input aria-label="Search questions"
                 type="text"
                 placeholder="Search by keyword, algorithm, or theorem..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-md text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <select
+              <select aria-label="Filter by topic"
                 value={selectedTopic}
                 onChange={(e) => setSelectedTopic(e.target.value)}
-                className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="all">All Topics ({baseQuestions.length})</option>
                 {topics.map((t) => (
@@ -296,10 +298,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                 ))}
               </select>
 
-              <select
+              <select aria-label="Filter by difficulty"
                 value={selectedDifficulty}
                 onChange={(e) => setSelectedDifficulty(e.target.value)}
-                className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="all">All Difficulties</option>
                 {difficulties.map((d) => (
@@ -309,10 +311,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                 ))}
               </select>
 
-              <select
+              <select aria-label="Filter by question type"
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="bg-white border border-slate-300 rounded-md px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="all">All Question Types</option>
                 {types.map((t) => (
@@ -329,7 +331,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
             <button
               onClick={() => setSelectedTopic('all')}
               className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                selectedTopic === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                selectedTopic === 'all' ? 'bg-brand-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               All Disciplines
@@ -339,7 +341,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                 key={topic}
                 onClick={() => setSelectedTopic(topic)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  selectedTopic === topic ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  selectedTopic === topic ? 'bg-brand-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 {topic}
@@ -352,8 +354,8 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
       {/* Questions List */}
       <div className="space-y-4">
         {filteredQuestions.length === 0 ? (
-          <div className="bg-white p-12 rounded-lg border border-slate-200 text-center text-slate-500 shadow-sm">
-            <FileText className="w-10 h-10 mx-auto text-slate-400 mb-3" />
+          <div className="bg-white p-12 rounded-lg border border-slate-200 text-center text-slate-600 shadow-sm">
+            <FileText className="w-10 h-10 mx-auto text-slate-600 mb-3" />
             <h3 className="font-bold text-slate-700">No matching questions found in this pool</h3>
             <p className="text-xs mt-1">Try resetting your filters, check a different visibility tab, or create a new question.</p>
           </div>
@@ -366,34 +368,34 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
             return (
               <div
                 key={q.id}
-                className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden transition-all hover:border-indigo-300"
+                className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden transition-all hover:border-brand-300"
               >
                 <div
-                  onClick={() => setExpandedId(isExpanded ? null : q.id)}
+                  {...asButton(() => setExpandedId(isExpanded ? null : q.id), { expanded: isExpanded })}
                   className="p-5 cursor-pointer flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white hover:bg-slate-50/50 transition-colors"
                 >
                   <div className="space-y-1.5 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-base text-slate-900">{q.title}</span>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                        className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1 ${
                           isPublic
-                            ? 'bg-sky-100 text-sky-800 border border-sky-200'
+                            ? 'bg-brand-100 text-brand-800 border border-brand-200'
                             : 'bg-amber-100 text-amber-900 border border-amber-200'
                         }`}
                       >
-                        {isPublic ? '🌐 Public' : '🔒 Private'}
+                        {isPublic ? 'Public' : 'Private'}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 uppercase tracking-wider">
+                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-brand-100 text-brand-800 uppercase tracking-wider">
                         {formatType(q.type)}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
+                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-200 text-slate-700 uppercase tracking-wider">
                         {q.difficulty}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+                      <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">
                         {q.points} pts
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 uppercase tracking-wider">
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-brand-100 text-brand-800 uppercase tracking-wider">
                         {q.topic}
                       </span>
                     </div>
@@ -425,14 +427,14 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                         className={`text-xs font-semibold px-2.5 py-1 rounded border transition-colors ${
                           isPublic
                             ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
-                            : 'bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100'
+                            : 'bg-brand-50 text-brand-800 border-brand-300 hover:bg-brand-100'
                         }`}
                         title={`Click to make this question ${isPublic ? 'Private' : 'Public'}`}
                       >
-                        {isPublic ? 'Make Private 🔒' : 'Make Public 🌐'}
+                        {isPublic ? 'Make Private' : 'Make Public'}
                       </button>
                     )}
-                    <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-3 py-1 rounded-md border border-indigo-200">
+                    <span className="text-xs font-medium text-brand-600 bg-brand-50 px-3 py-1 rounded-md border border-brand-200">
                       {isExpanded ? 'Hide Rubric ▲' : 'Inspect Rubric ▼'}
                     </span>
                   </div>
@@ -440,9 +442,9 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                 {/* Expanded Details */}
                 {isExpanded && (
-                  <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-4 animate-fade-in text-xs">
+                  <div className="p-6 bg-slate-50 border-t border-slate-200 space-y-4 fade-in text-xs">
                     <div>
-                      <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px] block mb-1">
+                      <span className="font-semibold text-slate-700 uppercase tracking-wider text-xs block mb-1">
                         Problem Statement / Prompt:
                       </span>
                       <div className="bg-white p-4 rounded-md border border-slate-200 text-slate-800 leading-relaxed shadow-sm">
@@ -452,10 +454,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                     {q.latexFormula && (
                       <div>
-                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px] block mb-1">
+                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-xs block mb-1">
                           Mathematical Expression (LaTeX):
                         </span>
-                        <div className="bg-[#0F172A] text-amber-300 font-mono p-3 rounded-md border border-slate-700 overflow-x-auto text-xs">
+                        <div className="bg-slate-50 text-slate-900 font-mono p-3 rounded-md border border-slate-300 overflow-x-auto text-xs">
                           {q.latexFormula}
                         </div>
                       </div>
@@ -463,13 +465,13 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                     {q.options && (
                       <div>
-                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px] block mb-1">
+                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-xs block mb-1">
                           Multiple Choice Options:
                         </span>
                         <ul className="list-disc pl-5 space-y-1 text-slate-700 bg-white p-3 rounded-md border border-slate-200 shadow-sm">
                           {q.options.map((opt, i) => (
                             <li key={i} className={q.correctAnswers?.includes(opt) ? 'font-bold text-emerald-700' : ''}>
-                              {opt} {q.correctAnswers?.includes(opt) ? '✓ (Correct)' : ''}
+                              {opt} {q.correctAnswers?.includes(opt) ? '(Correct)' : ''}
                             </li>
                           ))}
                         </ul>
@@ -478,10 +480,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                     {q.codeTemplate && (
                       <div>
-                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px] block mb-1">
+                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-xs block mb-1">
                           Code Boilerplate Template ({q.language}):
                         </span>
-                        <pre className="bg-[#0F172A] text-emerald-400 font-mono p-4 rounded-md border border-slate-700 overflow-x-auto text-[11px] leading-relaxed">
+                        <pre className="bg-slate-50 text-slate-900 font-mono p-4 rounded-md border border-slate-300 overflow-x-auto text-xs leading-relaxed">
                           {q.codeTemplate}
                         </pre>
                       </div>
@@ -489,7 +491,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px] block mb-1">
+                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-xs block mb-1">
                           Professor Grading Rubric:
                         </span>
                         <div className="bg-amber-50/80 p-3 rounded-md border border-amber-200 text-amber-900 italic">
@@ -498,10 +500,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                       </div>
 
                       <div>
-                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px] block mb-1">
+                        <span className="font-semibold text-slate-700 uppercase tracking-wider text-xs block mb-1">
                           Model Solution / Sample Answer:
                         </span>
-                        <div className="bg-white p-3 rounded-md border border-slate-200 text-slate-800 font-mono text-[11px] shadow-sm">
+                        <div className="bg-white p-3 rounded-md border border-slate-200 text-slate-800 font-mono text-xs shadow-sm">
                           {q.sampleAnswer || q.symbolicAnswer || 'See rubric.'}
                         </div>
                       </div>
@@ -516,18 +518,19 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
       {/* Manual Question Creator Modal */}
       {showManualModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
-            <div className="p-6 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
+        <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-md border border-slate-200">
+            <div className="p-6 border-b border-slate-200 bg-white text-slate-900 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold">{editingQuestionId ? 'Edit Screening Question' : 'Create Custom Screening Question'}</h3>
-                <p className="text-xs text-slate-300">Add a tailored problem to the public or private question bank</p>
+                <p className="text-xs text-slate-700">Add a tailored problem to the public or private question bank</p>
               </div>
               <button
                 onClick={() => setShowManualModal(false)}
-                className="text-slate-400 hover:text-white font-bold text-lg px-2"
+                className="rounded-md p-1 text-slate-600 hover:text-slate-900  px-2"
+                aria-label="Close"
               >
-                ✕
+                <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
 
@@ -535,22 +538,22 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1 sm:col-span-2">
                   <label className="font-semibold text-slate-700">Question Title *</label>
-                  <input
+                  <input aria-label="Question Title"
                     type="text"
                     required
                     value={manualTitle}
                     onChange={(e) => setManualTitle(e.target.value)}
                     placeholder="e.g. Asymptotic Complexity of Attention Layers"
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-700">Discipline / Topic Category</label>
-                  <select
+                  <select aria-label="Discipline / Topic Category"
                     value={manualTopic}
                     onChange={(e) => setManualTopic(e.target.value as TopicCategory)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   >
                     {topics.map((t) => (
                       <option key={t} value={t}>
@@ -562,10 +565,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-700">Difficulty Level</label>
-                  <select
+                  <select aria-label="Difficulty Level"
                     value={manualDifficulty}
                     onChange={(e) => setManualDifficulty(e.target.value as DifficultyLevel)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   >
                     {difficulties.map((d) => (
                       <option key={d} value={d}>
@@ -577,10 +580,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-700">Question Type</label>
-                  <select
+                  <select aria-label="Question Type"
                     value={manualType}
                     onChange={(e) => setManualType(e.target.value as QuestionType)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   >
                     {types.map((t) => (
                       <option key={t} value={t}>
@@ -592,13 +595,13 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-700">Points Value</label>
-                  <input
+                  <input aria-label="Points Value"
                     type="number"
                     min="1"
                     max="100"
                     value={manualPoints}
                     onChange={(e) => setManualPoints(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
@@ -606,32 +609,30 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                   <label className="font-semibold text-slate-700">Question Visibility *</label>
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <label
-                      onClick={() => setManualIsPublic(true)}
                       className={`p-3 rounded-lg border cursor-pointer flex items-center space-x-2 transition-all ${
                         manualIsPublic
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-900 font-bold shadow-sm'
+                          ? 'bg-brand-50 border-brand-500 text-brand-900 font-bold shadow-sm'
                           : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
-                      <input type="radio" checked={manualIsPublic} onChange={() => setManualIsPublic(true)} className="text-indigo-600" />
+                      <input type="radio" name="question-visibility" checked={manualIsPublic} onChange={() => setManualIsPublic(true)} className="accent-brand-700" />
                       <div>
-                        <div className="text-xs">🌐 Public Question Bank</div>
-                        <div className="text-[10px] font-normal text-slate-500">Available to all professors</div>
+                        <div className="text-xs">Public Question Bank</div>
+                        <div className="text-xs font-normal text-slate-600">Available to all professors</div>
                       </div>
                     </label>
 
                     <label
-                      onClick={() => setManualIsPublic(false)}
                       className={`p-3 rounded-lg border cursor-pointer flex items-center space-x-2 transition-all ${
                         !manualIsPublic
                           ? 'bg-amber-50 border-amber-500 text-amber-900 font-bold shadow-sm'
                           : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
-                      <input type="radio" checked={!manualIsPublic} onChange={() => setManualIsPublic(false)} className="text-amber-600" />
+                      <input type="radio" name="question-visibility" checked={!manualIsPublic} onChange={() => setManualIsPublic(false)} className="accent-brand-700" />
                       <div>
-                        <div className="text-xs">🔒 Private Question</div>
-                        <div className="text-[10px] font-normal text-slate-500">Only visible to you</div>
+                        <div className="text-xs">Private Question</div>
+                        <div className="text-xs font-normal text-slate-600">Only visible to you</div>
                       </div>
                     </label>
                   </div>
@@ -639,19 +640,19 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
                 <div className="space-y-1 sm:col-span-2">
                   <label className="font-semibold text-slate-700">Problem Statement / Prompt *</label>
-                  <textarea
+                  <textarea aria-label="Problem Statement / Prompt"
                     rows={4}
                     required
                     value={manualPrompt}
                     onChange={(e) => setManualPrompt(e.target.value)}
                     placeholder="Enter the full problem formulation or question text..."
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 {manualType === 'multiple-choice' && (
                   <div className="space-y-2 sm:col-span-2">
-                    <label className="font-semibold text-slate-700">Answer Options * <span className="font-normal text-slate-500">(select the correct one)</span></label>
+                    <label className="font-semibold text-slate-700">Answer Options * <span className="font-normal text-slate-600">(select the correct one)</span></label>
                     {manualOptions.map((opt, i) => (
                       <div key={i} className="flex items-center space-x-2">
                         <input
@@ -659,16 +660,16 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                           name="correct-option"
                           checked={manualCorrectIndex === i}
                           onChange={() => setManualCorrectIndex(i)}
-                          className="text-emerald-600"
+                          className="text-emerald-700"
                           title="Mark as correct answer"
                         />
-                        <span className="w-5 font-bold text-slate-500">{String.fromCharCode(65 + i)}.</span>
-                        <input
+                        <span className="w-5 font-bold text-slate-600">{String.fromCharCode(65 + i)}.</span>
+                        <input aria-label="Answer option"
                           type="text"
                           value={opt}
                           onChange={(e) => setManualOptions(manualOptions.map((o, j) => (j === i ? e.target.value : o)))}
                           placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                          className={`flex-1 px-3 py-2 bg-white border rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500 ${
+                          className={`flex-1 px-3 py-2 bg-white border rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500 ${
                             manualCorrectIndex === i ? 'border-emerald-500' : 'border-slate-300'
                           }`}
                         />
@@ -679,7 +680,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                             setManualOptions(manualOptions.filter((_, j) => j !== i));
                             if (manualCorrectIndex >= i && manualCorrectIndex > 0) setManualCorrectIndex(manualCorrectIndex - 1);
                           }}
-                          className="p-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
+                          className="p-1.5 text-slate-600 hover:text-red-600 disabled:opacity-30"
                           title="Remove option"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -690,7 +691,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                       <button
                         type="button"
                         onClick={() => setManualOptions([...manualOptions, ''])}
-                        className="text-indigo-600 font-semibold hover:underline"
+                        className="text-brand-600 font-semibold hover:underline"
                       >
                         + Add option
                       </button>
@@ -702,10 +703,10 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                   <>
                     <div className="space-y-1">
                       <label className="font-semibold text-slate-700">Programming Language</label>
-                      <select
+                      <select aria-label="Programming Language"
                         value={manualLanguage}
                         onChange={(e) => setManualLanguage(e.target.value as NonNullable<Question['language']>)}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                       >
                         {languages.map((l) => (
                           <option key={l} value={l}>
@@ -716,12 +717,12 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                     </div>
                     <div className="space-y-1 sm:col-span-2">
                       <label className="font-semibold text-slate-700">Starter Code Template</label>
-                      <textarea
+                      <textarea aria-label="Starter Code Template"
                         rows={5}
                         value={manualCodeTemplate}
                         onChange={(e) => setManualCodeTemplate(e.target.value)}
                         placeholder={'def solve(...):\n    # YOUR CODE HERE'}
-                        className="w-full px-3 py-2 bg-[#0F172A] text-emerald-400 border border-slate-700 rounded-md focus:ring-2 focus:ring-indigo-500 font-mono text-[11px]"
+                        className="w-full px-3 py-2 bg-slate-50 text-slate-900 border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 font-mono text-xs"
                       />
                     </div>
                   </>
@@ -730,35 +731,35 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                 {manualType === 'math' && (
                   <div className="space-y-1 sm:col-span-2">
                     <label className="font-semibold text-slate-700">Formula / Expression (LaTeX, optional)</label>
-                    <input
+                    <input aria-label="Formula / Expression (LaTeX, optional)"
                       type="text"
                       value={manualLatex}
                       onChange={(e) => setManualLatex(e.target.value)}
                       placeholder="e.g. ||A||_2 = \max_i |\sigma_i|"
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500 font-mono"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500 font-mono"
                     />
                   </div>
                 )}
 
                 <div className="space-y-1 sm:col-span-2">
                   <label className="font-semibold text-slate-700">Grading Rubric / Evaluation Criteria</label>
-                  <textarea
+                  <textarea aria-label="Grading Rubric / Evaluation Criteria"
                     rows={2}
                     value={manualRubric}
                     onChange={(e) => setManualRubric(e.target.value)}
                     placeholder="Describe what a top-tier answer must demonstrate..."
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
 
                 <div className="space-y-1 sm:col-span-2">
                   <label className="font-semibold text-slate-700">Model Solution / Sample Answer</label>
-                  <textarea
+                  <textarea aria-label="Model Solution / Sample Answer"
                     rows={2}
                     value={manualSampleAnswer}
                     onChange={(e) => setManualSampleAnswer(e.target.value)}
                     placeholder="Provide sample solution or key derivation steps..."
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-indigo-500 font-mono text-[11px]"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:ring-2 focus:ring-brand-500 font-mono text-xs"
                   />
                 </div>
               </div>
@@ -773,7 +774,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium shadow-sm shadow-indigo-200"
+                  className="px-6 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-md font-medium shadow-sm"
                 >
                   {editingQuestionId ? 'Save Changes' : 'Add Question to Bank'}
                 </button>

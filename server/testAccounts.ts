@@ -16,7 +16,9 @@ import type { StoredUser } from './types';
  */
 
 const DOMAIN = 'sandbox.sifted.test';
-const AVATAR = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80';
+
+/** Addresses on the sandbox domain belong to test accounts only (see isolation rules in the routes). */
+export const isSandboxEmail = (email: string) => email.trim().toLowerCase().endsWith(`@${DOMAIN}`);
 const QUESTION_SOURCES = ['q-mc-1', 'q-math-1', 'q-sa-1', 'q-prog-1', 'q-essay-1'];
 
 type Stage = 'ready' | 'submitted' | 'interview' | 'unverified';
@@ -152,7 +154,7 @@ async function createTestAccounts(db: Database) {
     email: PROFESSOR.email,
     department: PROFESSOR.department,
     labName: PROFESSOR.labName,
-    avatar: AVATAR,
+    avatar: '',
     aiSensitivity: 'medium',
     allowLateSubmissions: false,
   };
@@ -161,7 +163,6 @@ async function createTestAccounts(db: Database) {
     email: PROFESSOR.email,
     role: 'professor',
     professorId: professor.id,
-    avatar: AVATAR,
     department: PROFESSOR.department,
     labName: PROFESSOR.labName,
     isVerified: true,
@@ -204,7 +205,6 @@ async function createTestAccounts(db: Database) {
       email: spec.email,
       secondaryEmail: `${spec.email.split('@')[0]}.personal@${DOMAIN}`,
       role: 'applicant',
-      avatar: AVATAR,
       university: spec.university,
       degreeProgram: spec.degreeProgram,
       isVerified: spec.stage !== 'unverified',

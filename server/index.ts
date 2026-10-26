@@ -5,7 +5,7 @@ import { createApp } from './app';
 import { ensureEnvAdmin, isDemoMode, seedDemoData } from './bootstrap';
 import { Database } from './db';
 import { ensureTestAccounts } from './testAccounts';
-import { errorHandler } from './security';
+import { errorHandler, pruneExpiredSessions } from './security';
 import { sweepExpiredAttempts } from './services/attempts';
 
 // .env.local (documented in the README) takes precedence over .env
@@ -22,8 +22,10 @@ async function startServer() {
     console.log('Seeded the sample data (SEED_DEMO_DATA=true). Sample accounts use DEMO_PASSWORD.');
   }
   const adminWarning = await ensureEnvAdmin(db);
+  process.on('SIGTERM', () => db.flush().finally(() => process.exit(0)));
   if (adminWarning) console.warn(`⚠️  ${adminWarning}`);
   if (await ensureTestAccounts(db)) console.log('Created the sandbox test accounts (see the admin portal).');
+  await db.flush();
 
   const app = createApp(db);
 
@@ -36,9 +38,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    // Hashed build files never change, so browsers may keep them; the page itself is always revalidated
+    app.use('/assets', express.static(path.join(distPath, 'assets'), { immutable: true, maxAge: '1y', index: false }));
     app.use(express.static(distPath, { index: false }));
     // Express 4 wildcard: every non-API path serves the single-page app
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
@@ -46,7 +51,10 @@ async function startServer() {
 
   // Submit tests whose time ran out while the student was away
   setInterval(() => {
-    sweepExpiredAttempts(db).catch((e) => console.error('Expired attempt sweep failed:', e));
+    sweepExpiredAttempts(db)
+      .then(() => pruneExpiredSessions(db))
+      .then(() => db.flush())
+      .catch((e) => console.error('Background maintenance failed:', e instanceof Error ? e.message : e));
   }, 30_000).unref();
 
   app.listen(PORT, '0.0.0.0', () => {
